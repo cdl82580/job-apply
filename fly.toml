@@ -1,5 +1,5 @@
 app            = "job-apply-corey"
-primary_region = "bos"
+primary_region = "ewr"
 
 [build]
 
