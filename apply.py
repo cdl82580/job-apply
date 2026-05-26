@@ -18,6 +18,7 @@ CLI:
 """
 
 import argparse
+import html
 import json
 import os
 import re
@@ -503,6 +504,16 @@ def apply_brand_colors(xml: str, colors: dict) -> str:
     return xml
 
 
+def _xml_escape(text: str) -> str:
+    """Escape text for safe insertion as XML character data.
+    Resolves any pre-escaped entities first to avoid double-encoding, then
+    re-escapes cleanly — so Claude can write & or &amp; and both work."""
+    for entity, char in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+                         ("&apos;", "'"), ("&quot;", '"')]:
+        text = text.replace(entity, char)
+    return html.escape(text, quote=False)
+
+
 def step4_apply_edits(
     analysis: dict,
     resume_text: str,
@@ -581,7 +592,7 @@ Return ONLY valid JSON array.
         total_attempted += 1
 
         if old in xml:
-            xml = xml.replace(old, new, 1)
+            xml = xml.replace(old, _xml_escape(new), 1)
             total_success += 1
             config.progress(f"  ✓ Replaced: {old[:60]}...")
         else:
