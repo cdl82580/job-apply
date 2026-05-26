@@ -148,8 +148,32 @@
       display: none;
     }
 
-    /* ── Results ──────────────────────────────────────────────────── */
-    .results-h { font-size: 1rem; font-weight: 600; color: var(--success); margin: 0 0 1rem; }
+    /* ── Results (removed: .results-h .files .file-row .file-label .file-name .file-arrow .drive-row) */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .results-appear { animation: fadeUp .25s ease; }
+
+    .result-meta {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      margin-bottom: 1.25rem;
+    }
+    .result-check {
+      width: 30px; height: 30px;
+      background: #D1FAE5;
+      color: var(--success);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .result-job { font-size: .95rem; line-height: 1.4; }
+    .result-job strong { color: var(--text); }
+    .result-sep { color: var(--muted); margin: 0 .35rem; }
+    .result-job .result-role { color: var(--muted); }
 
     .framing {
       background: var(--fill);
@@ -157,30 +181,63 @@
       padding: .75rem 1rem;
       border-radius: 0 6px 6px 0;
       font-size: .875rem;
-      line-height: 1.5;
-      margin-bottom: 1rem;
+      line-height: 1.6;
+      margin-bottom: 1.25rem;
+      font-style: italic;
+      color: #2D4E6B;
     }
 
-    .files { display: flex; flex-direction: column; gap: .5rem; }
+    .file-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .75rem;
+      margin-bottom: 1.25rem;
+    }
+    @media (max-width: 520px) { .file-grid { grid-template-columns: 1fr; } }
 
-    .file-row {
+    .file-card {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: .625rem .875rem;
+      flex-direction: column;
       border: 1px solid #E5E7EB;
-      border-radius: 6px;
+      border-radius: 8px;
+      padding: 1rem;
       text-decoration: none;
       color: var(--text);
-      font-size: .875rem;
-      transition: background .1s, border-color .1s;
+      transition: border-color .15s, box-shadow .15s, transform .12s;
     }
-    .file-row:hover { background: var(--fill); border-color: var(--border); }
-    .file-label { font-weight: 600; }
-    .file-name  { color: var(--muted); font-size: .78rem; margin-top: .1rem; }
-    .file-arrow { color: var(--border); font-size: 1.1rem; flex-shrink: 0; }
+    .file-card:hover {
+      border-color: var(--border);
+      box-shadow: 0 4px 12px rgba(43,108,176,.1);
+      transform: translateY(-2px);
+    }
+    .file-card:active { transform: translateY(0); }
+    .file-card-icon  { font-size: 1.4rem; margin-bottom: .5rem; line-height: 1; }
+    .file-card-label { font-weight: 700; font-size: .875rem; margin-bottom: .2rem; }
+    .file-card-desc  { font-size: .775rem; color: var(--muted); flex: 1; margin-bottom: .875rem; }
+    .file-card-dl    { font-size: .775rem; font-weight: 600; color: var(--border); display: flex; align-items: center; gap: .25rem; }
 
-    .drive-row { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #E5E7EB; }
+    .drive-btn {
+      display: flex;
+      align-items: center;
+      gap: .875rem;
+      padding: .875rem 1.125rem;
+      background: white;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--primary);
+      font-weight: 600;
+      font-size: .9rem;
+      margin-bottom: 1.25rem;
+      transition: background .15s, box-shadow .15s;
+    }
+    .drive-btn:hover {
+      background: var(--fill);
+      box-shadow: 0 2px 8px rgba(43,108,176,.12);
+    }
+    .drive-btn-icon  { font-size: 1.15rem; }
+    .drive-btn-text  { flex: 1; }
+    .drive-btn-arrow { color: var(--muted); }
 
     /* ── Spinner ──────────────────────────────────────────────────── */
     .spin {
@@ -251,20 +308,20 @@
 
   <!-- ── Results ────────────────────────────────────────────────── -->
   <div class="card hidden" id="resultsCard">
-    <p class="results-h">&#10003; Done</p>
+    <div class="result-meta">
+      <div class="result-check">&#10003;</div>
+      <div class="result-job">
+        <strong id="resultCompany"></strong><span class="result-sep">&middot;</span><span class="result-role" id="resultRole"></span>
+      </div>
+    </div>
     <div class="framing hidden" id="framingEl"></div>
-    <div class="files" id="fileLinks"></div>
-    <div class="drive-row hidden" id="driveRow">
-      <a class="file-row" id="driveAnchor" target="_blank" rel="noopener">
-        <span>
-          <div class="file-label">Google Drive Folder</div>
-        </span>
-        <span class="file-arrow">&#x2197;</span>
-      </a>
-    </div>
-    <div style="margin-top:1rem">
-      <button class="btn btn-ghost" id="newRunBtn">New Application</button>
-    </div>
+    <div class="file-grid" id="fileGrid"></div>
+    <a class="drive-btn hidden" id="driveAnchor" target="_blank" rel="noopener">
+      <span class="drive-btn-icon">&#x2601;</span>
+      <span class="drive-btn-text">Open Google Drive Folder</span>
+      <span class="drive-btn-arrow">&#x2197;</span>
+    </a>
+    <button class="btn btn-ghost" id="newRunBtn">&#x2190; New Application</button>
   </div>
 
 </div><!-- /container -->
@@ -278,6 +335,9 @@
 
   const show = (id) => document.getElementById(id).classList.remove('hidden');
   const hide = (id) => document.getElementById(id).classList.add('hidden');
+
+  // Captured from the form so the results header can show context
+  let _company = '', _role = '';
 
   function appendLog(msg) {
     logEl.textContent += msg + '\n';
@@ -296,6 +356,8 @@
     const raw = Object.fromEntries(new FormData(e.target));
     const body = { job_posting: raw.job_posting, company: raw.company, role: raw.role };
     if (raw.contact.trim()) body.contact = raw.contact.trim();
+    _company = raw.company;
+    _role    = raw.role;
 
     // Reset
     logEl.textContent = '';
@@ -371,45 +433,60 @@
 
   // ── Show results ─────────────────────────────────────────────────
   function showResults(run_id, msg) {
+    const card = document.getElementById('resultsCard');
     show('resultsCard');
+    card.classList.add('results-appear');
 
+    // Job context header
+    document.getElementById('resultCompany').textContent = _company;
+    document.getElementById('resultRole').textContent    = _role;
+
+    // Framing angle
     if (msg.framing_angle) {
       document.getElementById('framingEl').textContent = msg.framing_angle;
       show('framingEl');
     }
 
-    const container = document.getElementById('fileLinks');
-    container.innerHTML = '';
-    const labels = {
-      resume:       ['Resume (Styled DOCX)', '&#x2193;'],
-      ats:          ['ATS Resume (DOCX)',    '&#x2193;'],
-      cover_letter: ['Cover Letter (DOCX)',  '&#x2193;'],
-    };
-    for (const [key, [label, icon]] of Object.entries(labels)) {
+    // File cards
+    const grid = document.getElementById('fileGrid');
+    grid.innerHTML = '';
+    const fileTypes = [
+      { key: 'resume',       icon: '📄', label: 'Resume',       desc: 'Styled DOCX — branded, formatted'  },
+      { key: 'ats',          icon: '📋', label: 'ATS Resume',   desc: 'Plain DOCX — parser-safe'          },
+      { key: 'cover_letter', icon: '✉',  label: 'Cover Letter', desc: 'DOCX — tailored to this role'      },
+    ];
+    for (const { key, icon, label, desc } of fileTypes) {
       const name = msg.files?.[key];
       if (!name) continue;
       const a = document.createElement('a');
-      a.className = 'file-row';
-      a.href = `/api/run/${run_id}/files/${encodeURIComponent(name)}`;
+      a.className = 'file-card';
+      a.href     = `/api/run/${run_id}/files/${encodeURIComponent(name)}`;
       a.download = name;
+      a.title    = name;
       a.innerHTML = `
-        <span>
-          <div class="file-label">${label}</div>
-          <div class="file-name">${name}</div>
-        </span>
-        <span class="file-arrow">${icon}</span>`;
-      container.appendChild(a);
+        <div class="file-card-icon">${icon}</div>
+        <div class="file-card-label">${label}</div>
+        <div class="file-card-desc">${desc}</div>
+        <div class="file-card-dl">&#x2193;&nbsp;Download</div>`;
+      grid.appendChild(a);
     }
 
+    // Drive link
     if (msg.folder_url) {
-      document.getElementById('driveAnchor').href = msg.folder_url;
-      show('driveRow');
+      const btn = document.getElementById('driveAnchor');
+      btn.href = msg.folder_url;
+      show('driveAnchor');
     }
   }
 
   // ── New run ───────────────────────────────────────────────────────
   document.getElementById('newRunBtn').addEventListener('click', () => {
+    const card = document.getElementById('resultsCard');
+    card.classList.remove('results-appear');
     hide('resultsCard');
+    hide('framingEl');
+    hide('driveAnchor');
+    document.getElementById('fileGrid').innerHTML = '';
     hide('progressCard');
     hide('queueNote');
     form.reset();
