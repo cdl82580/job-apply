@@ -264,11 +264,12 @@ async def register(
 
     user_id = str(uuid.uuid4())
     user = {
-        "user_id":       user_id,
-        "email":         email,
-        "display_name":  display_name.strip(),
-        "password_hash": _hash_password(password),
-        "created_at":    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "user_id":         user_id,
+        "email":           email,
+        "display_name":    display_name.strip(),
+        "password_hash":   _hash_password(password),
+        "created_at":      time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "resume_filename": resume.filename,
     }
 
     storage.save_user(user)
@@ -336,10 +337,11 @@ async def get_profile(request: Request):
     record = storage.get_user_by_id(user_data["user_id"]) or {}
     profile_text = storage.get_profile(user_data["user_id"]) or ""
     return {
-        "display_name": record.get("display_name", ""),
-        "email":        user_data["email"],
-        "profile_text": profile_text,
-        "has_resume":   storage.has_resume(user_data["user_id"]),
+        "display_name":    record.get("display_name", ""),
+        "email":           user_data["email"],
+        "profile_text":    profile_text,
+        "has_resume":      storage.has_resume(user_data["user_id"]),
+        "resume_filename": record.get("resume_filename"),
     }
 
 
@@ -368,6 +370,10 @@ async def upload_resume(request: Request, resume: UploadFile = File(...)):
     data = await resume.read()
     if len(data) < 1000:
         raise HTTPException(400, "File appears empty or invalid.")
+    record = storage.get_user_by_id(user_data["user_id"])
+    if record:
+        record["resume_filename"] = resume.filename
+        storage.save_user(record)
     storage.save_resume(user_data["user_id"], data)
     return {"ok": True}
 

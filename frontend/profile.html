@@ -282,8 +282,9 @@
     document.getElementById('accountInfo').innerHTML = `Signed in as <strong>${d.email}</strong>`;
     document.getElementById('display_name').value  = d.display_name ?? '';
     document.getElementById('profile_text').value  = d.profile_text ?? '';
+    const fname = d.resume_filename ? ` — ${d.resume_filename}` : '';
     document.getElementById('resumeStatus').innerHTML = d.has_resume
-      ? '<span class="dot"></span>Resume on file'
+      ? `<span class="dot"></span>Resume on file<span style="color:var(--muted);font-weight:400">${fname}</span>`
       : '<span style="color:var(--error)">⚠ No resume uploaded yet</span>';
   }
   loadProfile();
