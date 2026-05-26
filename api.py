@@ -128,6 +128,13 @@ async def create_run(req: RunRequest, response: Response):
                 _runs[run_id]["status"] = "error"
                 _runs[run_id]["error"] = str(exc)
                 q.put({"type": "error", "message": str(exc)})
+            except Exception as exc:
+                # Catch-all so an unexpected crash sends an error message rather
+                # than silently closing the SSE stream (which shows "Connection lost").
+                msg = f"Unexpected error: {type(exc).__name__}: {exc}"
+                _runs[run_id]["status"] = "error"
+                _runs[run_id]["error"] = msg
+                q.put({"type": "error", "message": msg})
             finally:
                 q.put(None)  # sentinel — signals end-of-stream
 

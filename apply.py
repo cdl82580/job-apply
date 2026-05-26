@@ -997,51 +997,59 @@ def step8_upload(
     if service is None:
         return None
 
-    config.progress(f"  ✓ Using Drive folder: Job Applications ({GDRIVE_PARENT_FOLDER_ID})")
+    # Drive upload is best-effort — a failure here must never crash the workflow
+    # or silently drop the SSE connection.
+    try:
+        config.progress(f"  ✓ Using Drive folder: Job Applications ({GDRIVE_PARENT_FOLDER_ID})")
 
-    run_folder_name = f"{company_safe}_{role_safe}"
+        run_folder_name = f"{company_safe}_{role_safe}"
 
-    # Reuse an existing subfolder rather than creating duplicates on re-runs
-    existing = service.files().list(
-        q=(
-            f"name='{run_folder_name}' and "
-            f"'{GDRIVE_PARENT_FOLDER_ID}' in parents and "
-            "mimeType='application/vnd.google-apps.folder' and trashed=false"
-        ),
-        fields="files(id, webViewLink)",
-        pageSize=1,
-    ).execute().get("files", [])
+        # Reuse an existing subfolder rather than creating duplicates on re-runs
+        existing = service.files().list(
+            q=(
+                f"name='{run_folder_name}' and "
+                f"'{GDRIVE_PARENT_FOLDER_ID}' in parents and "
+                "mimeType='application/vnd.google-apps.folder' and trashed=false"
+            ),
+            fields="files(id, webViewLink)",
+            pageSize=1,
+        ).execute().get("files", [])
 
-    if existing:
-        run_folder_id = existing[0]["id"]
-        folder_url    = existing[0]["webViewLink"]
-        config.progress(f"  ✓ Using existing subfolder: {run_folder_name}")
-    else:
-        rf = service.files().create(
-            body={
-                "name": run_folder_name,
-                "mimeType": "application/vnd.google-apps.folder",
-                "parents": [GDRIVE_PARENT_FOLDER_ID],
-            },
-            fields="id, webViewLink",
-        ).execute()
-        run_folder_id = rf["id"]
-        folder_url    = rf["webViewLink"]
-        config.progress(f"  ✓ Created subfolder: {run_folder_name}")
+        if existing:
+            run_folder_id = existing[0]["id"]
+            folder_url    = existing[0]["webViewLink"]
+            config.progress(f"  ✓ Using existing subfolder: {run_folder_name}")
+        else:
+            rf = service.files().create(
+                body={
+                    "name": run_folder_name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                    "parents": [GDRIVE_PARENT_FOLDER_ID],
+                },
+                fields="id, webViewLink",
+            ).execute()
+            run_folder_id = rf["id"]
+            folder_url    = rf["webViewLink"]
+            config.progress(f"  ✓ Created subfolder: {run_folder_name}")
 
-    for f in sorted(run_dir.iterdir()):
-        if f.name.startswith("~$") or f.suffix not in (".docx", ".pdf"):
-            continue
-        mime  = _MIME_DOCX if f.suffix == ".docx" else "application/pdf"
-        media = MediaFileUpload(str(f), mimetype=mime, resumable=False)
-        service.files().create(
-            body={"name": f.name, "parents": [run_folder_id]},
-            media_body=media,
-            fields="id",
-        ).execute()
-        config.progress(f"  ✓ Uploaded {f.name}")
+        for f in sorted(run_dir.iterdir()):
+            if f.name.startswith("~$") or f.suffix not in (".docx", ".pdf"):
+                continue
+            mime  = _MIME_DOCX if f.suffix == ".docx" else "application/pdf"
+            media = MediaFileUpload(str(f), mimetype=mime, resumable=False)
+            service.files().create(
+                body={"name": f.name, "parents": [run_folder_id]},
+                media_body=media,
+                fields="id",
+            ).execute()
+            config.progress(f"  ✓ Uploaded {f.name}")
 
-    return folder_url
+        return folder_url
+
+    except Exception as exc:
+        config.progress(f"  ⚠ Drive upload failed: {exc}")
+        config.progress("    Files are still available for download below.")
+        return None
 
 # ---------------------------------------------------------------------------
 # Public workflow entry point
