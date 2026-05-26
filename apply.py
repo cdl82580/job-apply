@@ -964,9 +964,19 @@ def _gdrive_service(config: WorkflowConfig):
         creds = Credentials.from_authorized_user_file(str(GDRIVE_TOKEN_PATH), _SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            # Persist refreshed token so it survives within this container session
-            GDRIVE_TOKEN_PATH.write_text(creds.to_json())
+            try:
+                creds.refresh(Request())
+                GDRIVE_TOKEN_PATH.write_text(creds.to_json())
+            except Exception as refresh_err:
+                # invalid_grant means the token is permanently revoked — remove it
+                # so the next run doesn't hit the same error, and tell the user.
+                GDRIVE_TOKEN_PATH.unlink(missing_ok=True)
+                config.progress(f"  ⚠ Drive token expired/revoked: {refresh_err}")
+                config.progress("    To fix: run locally then update the secret:")
+                config.progress("      rm ~/.config/job-apply/gdrive_token.json")
+                config.progress("      python3 setup_gdrive.py")
+                config.progress('      fly secrets set GDRIVE_TOKEN_JSON="$(cat ~/.config/job-apply/gdrive_token.json)"')
+                return None
         elif GDRIVE_CREDS_PATH.exists():
             flow  = InstalledAppFlow.from_client_secrets_file(str(GDRIVE_CREDS_PATH), _SCOPES)
             creds = flow.run_local_server(port=0)
@@ -993,13 +1003,14 @@ def step8_upload(
         return None
 
     print_step(8, "Uploading to Google Drive", config)
-    service = _gdrive_service(config)
-    if service is None:
-        return None
 
     # Drive upload is best-effort — a failure here must never crash the workflow
     # or silently drop the SSE connection.
     try:
+        service = _gdrive_service(config)
+        if service is None:
+            return None
+
         config.progress(f"  ✓ Using Drive folder: Job Applications ({GDRIVE_PARENT_FOLDER_ID})")
 
         run_folder_name = f"{company_safe}_{role_safe}"
