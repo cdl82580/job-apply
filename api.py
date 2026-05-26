@@ -16,15 +16,17 @@ this is fine; a second submission queues behind the first.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+import secrets
 import threading
 import uuid
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -34,6 +36,11 @@ from pydantic import BaseModel
 # requests (status, stream, file downloads) to the same machine — otherwise the
 # load balancer can route them to a different machine that has no record of the run.
 FLY_MACHINE_ID = os.environ.get("FLY_MACHINE_ID", "")
+
+# HTTP Basic Auth — set APP_PASSWORD env var / Fly.io secret to enable.
+# Username is ignored; any value works. /api/health is always exempt so
+# Fly.io infrastructure checks are unaffected.
+_APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 
 from apply import (
     DEFAULT_MODEL,
@@ -46,6 +53,31 @@ from apply import (
 )
 
 app = FastAPI(title="Job Application Agent")
+
+
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+    """Require HTTP Basic Auth on every request except /api/health."""
+    if not _APP_PASSWORD or request.url.path == "/api/health":
+        return await call_next(request)
+
+    auth = request.headers.get("Authorization", "")
+    authenticated = False
+    if auth.startswith("Basic "):
+        try:
+            _, pw = base64.b64decode(auth[6:]).decode().split(":", 1)
+            authenticated = secrets.compare_digest(pw, _APP_PASSWORD)
+        except Exception:
+            pass
+
+    if not authenticated:
+        return Response(
+            "Unauthorized",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="job-apply"'},
+        )
+    return await call_next(request)
+
 
 # ---------------------------------------------------------------------------
 # In-memory run store (sufficient for a single-user tool)
