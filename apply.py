@@ -923,6 +923,20 @@ _MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 _SCOPES    = ["https://www.googleapis.com/auth/drive.file"]
 
 
+def _seed_gdrive_token() -> None:
+    """Write the GDRIVE_TOKEN_JSON env var to disk if the token file isn't there yet.
+
+    On the server the OAuth browser flow can't run, so we store the token as a
+    Fly.io secret (GDRIVE_TOKEN_JSON) and materialize it at runtime.  The token
+    includes client_id + client_secret, so the Google SDK can refresh it
+    automatically without needing the original gdrive_credentials.json file.
+    """
+    token_json = os.environ.get("GDRIVE_TOKEN_JSON", "").strip()
+    if token_json and not GDRIVE_TOKEN_PATH.exists():
+        GDRIVE_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        GDRIVE_TOKEN_PATH.write_text(token_json)
+
+
 def _gdrive_service(config: WorkflowConfig):
     """Return an authenticated Drive v3 service, or None if credentials are missing."""
     try:
@@ -934,21 +948,23 @@ def _gdrive_service(config: WorkflowConfig):
         config.progress("  ⚠ google-api-python-client not installed — skipping Drive upload")
         return None
 
+    _seed_gdrive_token()
+
     creds = None
     if GDRIVE_TOKEN_PATH.exists():
         creds = Credentials.from_authorized_user_file(str(GDRIVE_TOKEN_PATH), _SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            # Persist refreshed token so it survives within this container session
+            GDRIVE_TOKEN_PATH.write_text(creds.to_json())
         elif GDRIVE_CREDS_PATH.exists():
             flow  = InstalledAppFlow.from_client_secrets_file(str(GDRIVE_CREDS_PATH), _SCOPES)
             creds = flow.run_local_server(port=0)
             GDRIVE_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
             GDRIVE_TOKEN_PATH.write_text(creds.to_json())
         else:
-            config.progress(f"  ⚠ gdrive_credentials.json not found — skipping Drive upload")
-            config.progress( "    To enable: download OAuth credentials from Google Cloud Console,")
-            config.progress(f"    save as {GDRIVE_CREDS_PATH}, then re-run.")
+            config.progress("  ⚠ Drive upload skipped — set GDRIVE_TOKEN_JSON secret to enable")
             return None
 
     return build("drive", "v3", credentials=creds)
