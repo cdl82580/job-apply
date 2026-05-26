@@ -313,7 +313,10 @@
     const res  = await apiFetch('/api/profile/resume', { method: 'POST', body: new FormData(e.target) });
     const body = await res.json();
     if (res.ok) {
-      document.getElementById('resumeStatus').innerHTML = '<span class="dot"></span>Resume on file';
+      const fname = resumeFile.files[0]?.name || '';
+      const label = fname ? ` — ${fname}` : '';
+      document.getElementById('resumeStatus').innerHTML =
+        `<span class="dot"></span>Resume on file<span style="color:var(--muted);font-weight:400">${label}</span>`;
       document.getElementById('chosenResume').textContent = '';
       resumeFile.value = '';
     }
