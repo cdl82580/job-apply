@@ -21,6 +21,7 @@ import json
 import os
 import secrets
 import threading
+import urllib.request
 import uuid
 from pathlib import Path
 from queue import Empty, Queue
@@ -31,16 +32,15 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# When running on Fly.io each machine has a unique ID in this env var.
-# We set it as a cookie on POST /api/run so Fly.io's proxy pins all follow-up
-# requests (status, stream, file downloads) to the same machine — otherwise the
-# load balancer can route them to a different machine that has no record of the run.
 FLY_MACHINE_ID = os.environ.get("FLY_MACHINE_ID", "")
+FLY_APP_NAME   = os.environ.get("FLY_APP_NAME", "job-apply-corey")
 
 # HTTP Basic Auth — set APP_PASSWORD env var / Fly.io secret to enable.
-# Username is ignored; any value works. /api/health is always exempt so
-# Fly.io infrastructure checks are unaffected.
+# Username is ignored; any value works. /api/health is always exempt.
 _APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+
+# Email address for password-change notifications.
+_NOTIFY_EMAIL = os.environ.get("APP_USER_EMAIL", "cdl825@gmail.com")
 
 from apply import (
     DEFAULT_MODEL,
@@ -89,7 +89,7 @@ _runs: dict[str, dict[str, Any]] = {}
 _workflow_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
-# Request model
+# Request models
 # ---------------------------------------------------------------------------
 
 class RunRequest(BaseModel):
@@ -98,6 +98,67 @@ class RunRequest(BaseModel):
     role: str
     contact: str | None = None
     model: str | None = None
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+# ---------------------------------------------------------------------------
+# Helpers: email + Fly.io secret persistence
+# ---------------------------------------------------------------------------
+
+def _send_email(subject: str, body: str) -> bool:
+    """Send a notification email via Resend. No-ops if RESEND_API_KEY is unset."""
+    api_key = os.environ.get("RESEND_API_KEY", "")
+    if not api_key:
+        return False
+    payload = json.dumps({
+        "from":    "Job Apply <onboarding@resend.dev>",
+        "to":      [_NOTIFY_EMAIL],
+        "subject": subject,
+        "text":    body,
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return 200 <= resp.status < 300
+    except Exception:
+        return False
+
+
+def _fly_persist_password(new_password: str) -> bool:
+    """Push APP_PASSWORD to Fly.io secrets via GraphQL API.
+    Requires FLY_API_TOKEN env var. Triggers a ~30s rolling restart."""
+    token = os.environ.get("FLY_API_TOKEN", "")
+    if not token:
+        return False
+    query = {
+        "query": (
+            "mutation ($input: SetSecretsInput!) {"
+            "  setSecrets(input: $input) { release { id } } }"
+        ),
+        "variables": {
+            "input": {
+                "appId":   FLY_APP_NAME,
+                "secrets": [{"key": "APP_PASSWORD", "value": new_password}],
+            }
+        },
+    }
+    req = urllib.request.Request(
+        "https://api.fly.io/graphql",
+        data=json.dumps(query).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            return "errors" not in result
+    except Exception:
+        return False
 
 # ---------------------------------------------------------------------------
 # API endpoints
@@ -109,6 +170,47 @@ async def health():
         "status": "ok",
         "master_resume": MASTER_RESUME.exists(),
         "profile": PROFILE_FILE.exists(),
+    }
+
+
+@app.post("/api/settings/password")
+async def change_password(req: PasswordChangeRequest):
+    global _APP_PASSWORD
+    if not _APP_PASSWORD:
+        raise HTTPException(status_code=400, detail="Password protection is not enabled.")
+    if not secrets.compare_digest(req.current_password, _APP_PASSWORD):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
+
+    # Update in-memory immediately (all requests on this machine use it at once)
+    _APP_PASSWORD = req.new_password
+    os.environ["APP_PASSWORD"] = req.new_password
+
+    # Persist to Fly.io secrets (triggers ~30s rolling restart on both machines)
+    persisted = _fly_persist_password(req.new_password)
+
+    # Email confirmation
+    emailed = _send_email(
+        subject="Job Apply — Password Changed",
+        body=(
+            f"Your Job Application Agent password was just changed.\n\n"
+            f"New password:  {req.new_password}\n\n"
+            f"Log in at https://{FLY_APP_NAME}.fly.dev/\n"
+            + (
+                "\nThe password has been saved — it will survive server restarts."
+                if persisted else
+                "\nNote: run the following to make it permanent across restarts:\n"
+                f'  fly secrets set APP_PASSWORD="{req.new_password}" --app {FLY_APP_NAME}'
+            )
+        ),
+    )
+
+    return {
+        "ok":        True,
+        "persisted": persisted,
+        "emailed":   emailed,
+        "email_to":  _NOTIFY_EMAIL,
     }
 
 
