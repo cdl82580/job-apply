@@ -176,10 +176,16 @@ def run(
     result = subprocess.run(cmd, shell=shell, capture_output=True, text=True)
     if check and result.returncode != 0:
         cmd_display = cmd if shell else " ".join(shlex.quote(str(c)) for c in cmd)
+        # Build a detailed error that includes all output so the cause is always visible
+        detail_parts = [f"Command failed: {cmd_display}"]
+        if result.stdout.strip():
+            detail_parts.append(result.stdout.strip())
+        if result.stderr.strip():
+            detail_parts.append(result.stderr.strip())
+        detail = "\n\n".join(detail_parts)
         progress = config.progress if config else print
-        if result.stderr:
-            progress(result.stderr)
-        raise WorkflowError(f"Command failed: {cmd_display}")
+        progress(detail)
+        raise WorkflowError(detail)
     return result
 
 
