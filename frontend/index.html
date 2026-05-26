@@ -4,31 +4,70 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Job Application Agent</title>
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <!-- Anti-FOUC: apply saved theme before CSS renders -->
+  <script>
+    (function(){
+      var t = localStorage.getItem('theme') ||
+              (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
+    /* ── Light mode tokens ───────────────────────────────────────── */
     :root {
-      --primary: #1A3C5E;
-      --border:  #2B6CB0;
-      --fill:    #EEF4FB;
-      --text:    #111827;
-      --muted:   #6B7280;
-      --error:   #DC2626;
-      --success: #065F46;
-      --radius:  8px;
+      --primary:      #1A3C5E;
+      --border:       #2B6CB0;
+      --fill:         #EEF4FB;
+      --text:         #111827;
+      --muted:        #6B7280;
+      --error:        #DC2626;
+      --success:      #065F46;
+      --radius:       8px;
+      --bg-page:      #F9FAFB;
+      --bg-card:      #FFFFFF;
+      --card-border:  #E5E7EB;
+      --input-bg:     #FFFFFF;
+      --input-border: #D1D5DB;
+      --log-bg:       #0F172A;
+      --log-text:     #CBD5E1;
+      --framing-text: #2D4E6B;
+    }
+
+    /* ── Dark mode tokens (from midnight logo palette) ───────────── */
+    [data-theme="dark"] {
+      --primary:      #A5B4FC;
+      --border:       #6366F1;
+      --fill:         #1E1B3A;
+      --text:         #EEF2FF;
+      --muted:        #94A3B8;
+      --error:        #F87171;
+      --success:      #4ADE80;
+      --bg-page:      #09090F;
+      --bg-card:      #111120;
+      --card-border:  #1E1E32;
+      --input-bg:     #14142A;
+      --input-border: #2D2D50;
+      --log-bg:       #06060F;
+      --log-text:     #8B9EB5;
+      --framing-text: #C7D2FE;
     }
 
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      background: #F9FAFB;
+      background: var(--bg-page);
       color: var(--text);
       margin: 0;
       padding: 2rem 1rem;
       min-height: 100vh;
+      transition: background .2s, color .2s;
     }
 
     .container { max-width: 760px; margin: 0 auto; }
 
+    /* ── Header ──────────────────────────────────────────────────── */
     header {
       margin-bottom: 2rem;
       padding-bottom: 1rem;
@@ -37,15 +76,11 @@
       align-items: flex-start;
       justify-content: space-between;
     }
-    header h1 { font-size: 1.5rem; font-weight: 700; color: var(--primary); margin: 0 0 .25rem; }
-    header p  { color: var(--muted); margin: 0; font-size: .9rem; }
-
+    .header-left   { display: flex; align-items: flex-start; gap: .875rem; }
+    header h1      { font-size: 1.5rem; font-weight: 700; color: var(--primary); margin: 0 0 .25rem; }
+    header p       { color: var(--muted); margin: 0; font-size: .9rem; }
     .header-actions {
-      display: flex;
-      align-items: center;
-      gap: .75rem;
-      flex-shrink: 0;
-      margin-top: .25rem;
+      display: flex; align-items: center; gap: .75rem; flex-shrink: 0; margin-top: .25rem;
     }
     .header-user { font-size: .825rem; color: var(--muted); }
     .header-link {
@@ -54,40 +89,60 @@
     }
     .header-link:hover { text-decoration: underline; }
 
+    /* ── Logo ────────────────────────────────────────────────────── */
+    .app-logo { width: 44px; height: 44px; flex-shrink: 0; }
+    .app-logo img { width: 44px; height: 44px; display: block; }
+    .logo-light { display: block; }
+    .logo-dark  { display: none;  }
+    [data-theme="dark"] .logo-light { display: none;  }
+    [data-theme="dark"] .logo-dark  { display: block; }
+
+    /* ── Theme toggle ────────────────────────────────────────────── */
+    .theme-toggle {
+      background: none;
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: .3rem .65rem;
+      cursor: pointer;
+      font-size: .8rem;
+      color: var(--muted);
+      display: flex; align-items: center; gap: .3rem;
+      transition: border-color .15s, color .15s;
+      line-height: 1;
+    }
+    .theme-toggle:hover { border-color: var(--border); color: var(--text); }
+
+    /* ── Card ────────────────────────────────────────────────────── */
     .card {
-      background: white;
+      background: var(--bg-card);
       border-radius: var(--radius);
-      border: 1px solid #E5E7EB;
+      border: 1px solid var(--card-border);
       padding: 1.5rem;
       margin-bottom: 1.5rem;
+      transition: background .2s, border-color .2s;
     }
 
     .field { margin-bottom: 1.25rem; }
     .field:last-child { margin-bottom: 0; }
 
-    label {
-      display: block;
-      font-weight: 600;
-      font-size: .875rem;
-      margin-bottom: .375rem;
-    }
+    label { display: block; font-weight: 600; font-size: .875rem; margin-bottom: .375rem; }
     label .opt { font-weight: 400; color: var(--muted); font-size: .8rem; }
 
     input[type="text"], textarea {
       width: 100%;
       padding: .5rem .75rem;
-      border: 1px solid #D1D5DB;
+      border: 1px solid var(--input-border);
       border-radius: 6px;
       font-size: .9rem;
       font-family: inherit;
       color: var(--text);
-      background: white;
-      transition: border-color .15s;
+      background: var(--input-bg);
+      transition: border-color .15s, background .2s, color .2s;
     }
     input[type="text"]:focus, textarea:focus {
       outline: none;
       border-color: var(--border);
-      box-shadow: 0 0 0 3px rgba(43,108,176,.12);
+      box-shadow: 0 0 0 3px rgba(99,102,241,.15);
     }
     textarea { resize: vertical; min-height: 180px; line-height: 1.5; }
 
@@ -95,24 +150,19 @@
     @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
 
     .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: .5rem;
+      display: inline-flex; align-items: center; gap: .5rem;
       padding: .625rem 1.5rem;
-      background: var(--primary);
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: .95rem;
-      font-weight: 600;
+      background: var(--primary); color: white;
+      border: none; border-radius: 6px;
+      font-size: .95rem; font-weight: 600;
       cursor: pointer;
       transition: background .15s, opacity .15s;
     }
-    .btn:hover:not(:disabled) { background: #15304e; }
+    .btn:hover:not(:disabled) { filter: brightness(1.12); }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
 
     .btn-ghost {
-      background: white;
+      background: var(--bg-card);
       color: var(--primary);
       border: 1px solid var(--border);
     }
@@ -120,111 +170,92 @@
 
     /* ── Progress ─────────────────────────────────────────────────── */
     .progress-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: .75rem;
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem;
     }
     .progress-header h2 { font-size: 1rem; font-weight: 600; margin: 0; color: var(--primary); }
 
     .badge {
-      font-size: .72rem;
-      padding: .2rem .6rem;
-      border-radius: 999px;
-      font-weight: 700;
-      letter-spacing: .02em;
-      text-transform: uppercase;
+      font-size: .72rem; padding: .2rem .6rem;
+      border-radius: 999px; font-weight: 700;
+      letter-spacing: .02em; text-transform: uppercase;
     }
     .badge-running { background: #DBEAFE; color: #1D4ED8; }
     .badge-queued  { background: #FEF3C7; color: #92400E; }
-    .badge-done    { background: #D1FAE5; color: var(--success); }
-    .badge-error   { background: #FEE2E2; color: var(--error); }
+    .badge-done    { background: #D1FAE5; color: #065F46; }
+    .badge-error   { background: #FEE2E2; color: #DC2626; }
+
+    [data-theme="dark"] .badge-running { background: #1E2D56; color: #93C5FD; }
+    [data-theme="dark"] .badge-queued  { background: #2D2010; color: #FCD34D; }
+    [data-theme="dark"] .badge-done    { background: #0D2B1E; color: #4ADE80; }
+    [data-theme="dark"] .badge-error   { background: #2B1010; color: #F87171; }
 
     .log {
-      background: #0F172A;
-      color: #CBD5E1;
-      border-radius: 6px;
-      padding: 1rem;
+      background: var(--log-bg);
+      color: var(--log-text);
+      border-radius: 6px; padding: 1rem;
       font-family: "SF Mono", "Fira Code", monospace;
-      font-size: .78rem;
-      line-height: 1.6;
-      max-height: 380px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
+      font-size: .78rem; line-height: 1.6;
+      max-height: 380px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-word;
     }
 
     .inline-err {
-      background: #FEF2F2;
-      border: 1px solid #FECACA;
-      border-radius: 6px;
-      padding: .75rem 1rem;
-      color: var(--error);
-      font-size: .875rem;
-      margin-top: .75rem;
-      display: none;
+      background: #FEF2F2; border: 1px solid #FECACA;
+      border-radius: 6px; padding: .75rem 1rem;
+      color: var(--error); font-size: .875rem;
+      margin-top: .75rem; display: none;
     }
+    [data-theme="dark"] .inline-err { background: #2B1010; border-color: #7F1D1D; }
 
-    /* ── Results (removed: .results-h .files .file-row .file-label .file-name .file-arrow .drive-row) */
+    /* ── Results ──────────────────────────────────────────────────── */
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(10px); }
       to   { opacity: 1; transform: translateY(0); }
     }
     .results-appear { animation: fadeUp .25s ease; }
 
-    .result-meta {
-      display: flex;
-      align-items: center;
-      gap: .75rem;
-      margin-bottom: 1.25rem;
-    }
+    .result-meta { display: flex; align-items: center; gap: .75rem; margin-bottom: 1.25rem; }
     .result-check {
       width: 30px; height: 30px;
-      background: #D1FAE5;
-      color: var(--success);
+      background: #D1FAE5; color: #065F46;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 1rem;
-      flex-shrink: 0;
+      font-size: 1rem; flex-shrink: 0;
     }
-    .result-job { font-size: .95rem; line-height: 1.4; }
-    .result-job strong { color: var(--text); }
-    .result-sep { color: var(--muted); margin: 0 .35rem; }
-    .result-job .result-role { color: var(--muted); }
+    [data-theme="dark"] .result-check { background: #0D2B1E; color: #4ADE80; }
+
+    .result-job    { font-size: .95rem; line-height: 1.4; }
+    .result-sep    { color: var(--muted); margin: 0 .35rem; }
+    .result-role   { color: var(--muted); }
 
     .framing {
       background: var(--fill);
       border-left: 3px solid var(--border);
       padding: .75rem 1rem;
       border-radius: 0 6px 6px 0;
-      font-size: .875rem;
-      line-height: 1.6;
+      font-size: .875rem; line-height: 1.6;
       margin-bottom: 1.25rem;
       font-style: italic;
-      color: #2D4E6B;
+      color: var(--framing-text);
     }
 
     .file-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: .75rem;
-      margin-bottom: 1.25rem;
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: .75rem; margin-bottom: 1.25rem;
     }
     @media (max-width: 520px) { .file-grid { grid-template-columns: 1fr; } }
 
     .file-card {
-      display: flex;
-      flex-direction: column;
-      border: 1px solid #E5E7EB;
-      border-radius: 8px;
-      padding: 1rem;
-      text-decoration: none;
-      color: var(--text);
+      display: flex; flex-direction: column;
+      border: 1px solid var(--card-border);
+      border-radius: 8px; padding: 1rem;
+      background: var(--bg-card);
+      text-decoration: none; color: var(--text);
       transition: border-color .15s, box-shadow .15s, transform .12s;
     }
     .file-card:hover {
       border-color: var(--border);
-      box-shadow: 0 4px 12px rgba(43,108,176,.1);
+      box-shadow: 0 4px 12px rgba(99,102,241,.15);
       transform: translateY(-2px);
     }
     .file-card:active { transform: translateY(0); }
@@ -234,36 +265,26 @@
     .file-card-dl    { font-size: .775rem; font-weight: 600; color: var(--border); display: flex; align-items: center; gap: .25rem; }
 
     .drive-btn {
-      display: flex;
-      align-items: center;
-      gap: .875rem;
+      display: flex; align-items: center; gap: .875rem;
       padding: .875rem 1.125rem;
-      background: white;
+      background: var(--bg-card);
       border: 1.5px solid var(--border);
       border-radius: 8px;
-      text-decoration: none;
-      color: var(--primary);
-      font-weight: 600;
-      font-size: .9rem;
+      text-decoration: none; color: var(--primary);
+      font-weight: 600; font-size: .9rem;
       margin-bottom: 1.25rem;
       transition: background .15s, box-shadow .15s;
     }
-    .drive-btn:hover {
-      background: var(--fill);
-      box-shadow: 0 2px 8px rgba(43,108,176,.12);
-    }
+    .drive-btn:hover { background: var(--fill); box-shadow: 0 2px 8px rgba(99,102,241,.15); }
     .drive-btn-icon  { font-size: 1.15rem; }
     .drive-btn-text  { flex: 1; }
     .drive-btn-arrow { color: var(--muted); }
 
     /* ── Spinner ──────────────────────────────────────────────────── */
     .spin {
-      display: inline-block;
-      width: 14px; height: 14px;
-      border: 2px solid rgba(255,255,255,.4);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: rot .7s linear infinite;
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: white;
+      border-radius: 50%; animation: rot .7s linear infinite;
     }
     @keyframes rot { to { transform: rotate(360deg); } }
 
@@ -271,30 +292,21 @@
 
     /* ── Select ──────────────────────────────────────────────────── */
     select {
-      width: 100%;
-      padding: .5rem .75rem;
-      border: 1px solid #D1D5DB;
-      border-radius: 6px;
-      font-size: .9rem;
-      font-family: inherit;
-      color: var(--text);
-      background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236B7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right .75rem center;
-      appearance: none;
-      cursor: pointer;
+      width: 100%; padding: .5rem .75rem;
+      border: 1px solid var(--input-border);
+      border-radius: 6px; font-size: .9rem; font-family: inherit;
+      color: var(--text); background-color: var(--input-bg);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236B7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right .75rem center;
+      appearance: none; cursor: pointer;
+      transition: background-color .2s, border-color .15s, color .2s;
     }
-    select:focus {
-      outline: none;
-      border-color: var(--border);
-      box-shadow: 0 0 0 3px rgba(43,108,176,.12);
-    }
+    select:focus { outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
 
     /* ── Prep card collapsible ───────────────────────────────────── */
     .card-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      cursor: pointer;
-      user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; user-select: none;
     }
     .card-head h2 { font-size: 1rem; font-weight: 700; color: var(--primary); margin: 0; }
     .card-head:hover h2 { color: var(--border); }
@@ -306,23 +318,16 @@
     .src-toggle { display: flex; gap: .5rem; margin-bottom: .75rem; }
     .src-btn {
       padding: .3rem .85rem;
-      border: 1px solid #D1D5DB;
-      border-radius: 6px;
-      font-size: .825rem;
-      font-weight: 500;
-      background: white;
-      color: var(--muted);
-      cursor: pointer;
-      transition: all .15s;
+      border: 1px solid var(--input-border);
+      border-radius: 6px; font-size: .825rem; font-weight: 500;
+      background: var(--input-bg); color: var(--muted);
+      cursor: pointer; transition: all .15s;
     }
     .src-btn.active {
-      background: var(--fill);
-      border-color: var(--border);
-      color: var(--primary);
-      font-weight: 600;
+      background: var(--fill); border-color: var(--border);
+      color: var(--primary); font-weight: 600;
     }
 
-    /* Smaller textarea overrides for prep form */
     #prepFocus  { min-height: 60px; }
     #prepJdText { min-height: 130px; }
   </style>
@@ -331,11 +336,20 @@
 <div class="container">
 
   <header>
-    <div>
-      <h1>Job Application Agent</h1>
-      <p>Paste a job posting to generate a tailored resume, ATS resume, and cover letter.</p>
+    <div class="header-left">
+      <div class="app-logo">
+        <img class="logo-light" src="/img/logo-light.png" alt="Logo">
+        <img class="logo-dark"  src="/img/logo-dark.png"  alt="Logo">
+      </div>
+      <div>
+        <h1>Job Application Agent</h1>
+        <p>Paste a job posting to generate a tailored resume, ATS resume, and cover letter.</p>
+      </div>
     </div>
     <div class="header-actions">
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+        <span id="themeIcon"></span>
+      </button>
       <span class="header-user" id="headerUser"></span>
       <a class="header-link" href="/profile.html">Profile</a>
       <button class="header-link" id="logoutBtn">Sign Out</button>
@@ -491,6 +505,20 @@
 </div><!-- /container -->
 
 <script>
+  // ── Theme ─────────────────────────────────────────────────────────
+  const ICONS = { light: '☀', dark: '🌙' };
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('theme', t);
+    document.getElementById('themeIcon').textContent = ICONS[t];
+  }
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+  // Init icon (theme already set by anti-FOUC script in <head>)
+  document.getElementById('themeIcon').textContent =
+    ICONS[document.documentElement.getAttribute('data-theme')] || ICONS.light;
+
   // ── Auth helpers ─────────────────────────────────────────────────
   async function apiFetch(url, opts = {}) {
     const res = await fetch(url, opts);

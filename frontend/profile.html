@@ -4,66 +4,164 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Profile — Job Application Agent</title>
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <script>
+    (function(){
+      var t = localStorage.getItem('theme') ||
+              (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
+
     :root {
-      --primary: #1A3C5E; --border: #2B6CB0; --fill: #EEF4FB;
-      --text: #111827; --muted: #6B7280; --error: #DC2626; --success: #065F46;
-      --radius: 8px;
+      --primary:      #1A3C5E;
+      --border:       #2B6CB0;
+      --fill:         #EEF4FB;
+      --text:         #111827;
+      --muted:        #6B7280;
+      --error:        #DC2626;
+      --success:      #065F46;
+      --radius:       8px;
+      --bg-page:      #F9FAFB;
+      --bg-card:      #FFFFFF;
+      --card-border:  #E5E7EB;
+      --input-bg:     #FFFFFF;
+      --input-border: #D1D5DB;
     }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #F9FAFB; color: var(--text); margin: 0; padding: 2rem 1rem; }
+
+    [data-theme="dark"] {
+      --primary:      #A5B4FC;
+      --border:       #6366F1;
+      --fill:         #1E1B3A;
+      --text:         #EEF2FF;
+      --muted:        #94A3B8;
+      --error:        #F87171;
+      --success:      #4ADE80;
+      --bg-page:      #09090F;
+      --bg-card:      #111120;
+      --card-border:  #1E1E32;
+      --input-bg:     #14142A;
+      --input-border: #2D2D50;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg-page); color: var(--text);
+      margin: 0; padding: 2rem 1rem;
+      transition: background .2s, color .2s;
+    }
     .container { max-width: 680px; margin: 0 auto; }
-    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 2px solid var(--primary); }
-    .logo { font-size: 1.3rem; font-weight: 700; color: var(--primary); }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 2rem; padding-bottom: 1rem;
+      border-bottom: 2px solid var(--primary);
+    }
+    .header-left { display: flex; align-items: center; gap: .75rem; }
+    .logo-img  { width: 36px; height: 36px; }
+    .logo-light { display: block; }
+    .logo-dark  { display: none;  }
+    [data-theme="dark"] .logo-light { display: none;  }
+    [data-theme="dark"] .logo-dark  { display: block; }
+    .logo { font-size: 1.2rem; font-weight: 700; color: var(--primary); }
+
+    .header-right { display: flex; align-items: center; gap: .75rem; }
     .back { font-size: .875rem; color: var(--border); text-decoration: none; font-weight: 600; }
     .back:hover { text-decoration: underline; }
-    .card { background: white; border: 1px solid #E5E7EB; border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; }
+
+    .theme-toggle {
+      background: none; border: 1px solid var(--card-border);
+      border-radius: 20px; padding: .3rem .65rem;
+      cursor: pointer; font-size: .8rem; color: var(--muted);
+      transition: border-color .15s, color .15s;
+    }
+    .theme-toggle:hover { border-color: var(--border); color: var(--text); }
+
+    .card {
+      background: var(--bg-card); border: 1px solid var(--card-border);
+      border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem;
+      transition: background .2s, border-color .2s;
+    }
     .card-title { font-size: .95rem; font-weight: 700; color: var(--primary); margin: 0 0 1.25rem; }
+
     .field { margin-bottom: 1rem; }
     .field:last-child { margin-bottom: 0; }
     label { display: block; font-weight: 600; font-size: .825rem; margin-bottom: .3rem; }
     label .opt { font-weight: 400; color: var(--muted); }
+
     input[type="text"], input[type="password"], textarea {
-      width: 100%; padding: .5rem .75rem; border: 1px solid #D1D5DB;
-      border-radius: 6px; font-size: .9rem; font-family: inherit; color: var(--text);
+      width: 100%; padding: .5rem .75rem;
+      border: 1px solid var(--input-border); border-radius: 6px;
+      font-size: .9rem; font-family: inherit;
+      background: var(--input-bg); color: var(--text);
+      transition: border-color .15s, background .2s, color .2s;
     }
-    input:focus, textarea:focus { outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(43,108,176,.12); }
+    input:focus, textarea:focus {
+      outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+    }
     textarea { resize: vertical; min-height: 280px; line-height: 1.5; }
+
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
     @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+
     .btn {
       display: inline-flex; align-items: center; gap: .5rem;
-      padding: .5rem 1.25rem; background: var(--primary); color: white;
-      border: none; border-radius: 6px; font-size: .875rem; font-weight: 600; cursor: pointer;
+      padding: .5rem 1.25rem;
+      background: var(--primary); color: white;
+      border: none; border-radius: 6px;
+      font-size: .875rem; font-weight: 600; cursor: pointer;
+      transition: filter .15s;
     }
-    .btn:hover { background: #15304e; }
+    .btn:hover { filter: brightness(1.12); }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
-    .btn-ghost { background: white; color: var(--primary); border: 1px solid var(--border); }
-    .btn-ghost:hover { background: var(--fill); }
-    .btn-danger { background: white; color: var(--error); border: 1px solid #FECACA; }
-    .btn-danger:hover { background: #FEF2F2; }
-    .toast {
-      font-size: .825rem; padding: .5rem .875rem; border-radius: 6px; margin-top: .75rem; display: none;
+
+    .btn-ghost {
+      background: var(--bg-card); color: var(--primary);
+      border: 1px solid var(--border);
     }
-    .toast.ok  { background: #D1FAE5; color: var(--success); }
+    .btn-ghost:hover { background: var(--fill); filter: none; }
+
+    .btn-danger {
+      background: var(--bg-card); color: var(--error);
+      border: 1px solid var(--error);
+    }
+    .btn-danger:hover { background: #FEF2F2; filter: none; }
+    [data-theme="dark"] .btn-danger:hover { background: #2B1010; }
+
+    .toast {
+      font-size: .825rem; padding: .5rem .875rem;
+      border-radius: 6px; margin-top: .75rem; display: none;
+    }
+    .toast.ok  { background: #D1FAE5; color: #065F46; }
     .toast.err { background: #FEF2F2; color: var(--error); }
+    [data-theme="dark"] .toast.ok  { background: #0D2B1E; color: #4ADE80; }
+    [data-theme="dark"] .toast.err { background: #2B1010; color: var(--error); }
+
     .file-info { font-size: .825rem; color: var(--muted); margin-bottom: .75rem; }
-    .file-info .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34D399; margin-right: .4rem; }
+    .file-info .dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; background: #34D399; margin-right: .4rem;
+    }
+
     .file-drop {
-      border: 2px dashed #D1D5DB; border-radius: 8px;
+      border: 2px dashed var(--input-border); border-radius: 8px;
       padding: 1rem; text-align: center; cursor: pointer; position: relative;
       transition: border-color .15s, background .15s;
     }
     .file-drop:hover { border-color: var(--border); background: var(--fill); }
     .file-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-    .file-drop .hint  { font-size: .8rem; color: var(--muted); }
+    .file-drop .hint   { font-size: .8rem; color: var(--muted); }
     .file-drop .chosen { font-size: .85rem; font-weight: 600; color: var(--primary); margin-top: .25rem; }
+
     .spin {
       display: inline-block; width: 12px; height: 12px;
       border: 2px solid rgba(255,255,255,.4); border-top-color: white;
       border-radius: 50%; animation: rot .7s linear infinite;
     }
     @keyframes rot { to { transform: rotate(360deg); } }
+
     .account-info { font-size: .875rem; color: var(--muted); margin-bottom: 1.25rem; }
     .account-info strong { color: var(--text); }
   </style>
@@ -71,11 +169,18 @@
 <body>
 <div class="container">
   <header>
-    <div class="logo">Profile Settings</div>
-    <a class="back" href="/">← Back to App</a>
+    <div class="header-left">
+      <img class="logo-img logo-light" src="/img/logo-light.png" alt="Logo">
+      <img class="logo-img logo-dark"  src="/img/logo-dark.png"  alt="Logo">
+      <div class="logo">Profile Settings</div>
+    </div>
+    <div class="header-right">
+      <button class="theme-toggle" id="themeToggle"><span id="themeIcon"></span></button>
+      <a class="back" href="/">← Back to App</a>
+    </div>
   </header>
 
-  <!-- Account info -->
+  <!-- Account -->
   <div class="card">
     <p class="card-title">Account</p>
     <p class="account-info" id="accountInfo">Loading…</p>
@@ -147,7 +252,18 @@
   </div>
 </div>
 <script>
-  // ── Redirect to login on 401 ──────────────────────────────────────
+  const ICONS = { light: '☀', dark: '🌙' };
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('theme', t);
+    document.getElementById('themeIcon').textContent = ICONS[t];
+  }
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+  document.getElementById('themeIcon').textContent =
+    ICONS[document.documentElement.getAttribute('data-theme')] || ICONS.light;
+
   async function apiFetch(url, opts = {}) {
     const res = await fetch(url, opts);
     if (res.status === 401) { window.location.href = '/login.html'; throw new Error('401'); }
@@ -156,19 +272,15 @@
 
   function toast(id, msg, type) {
     const el = document.getElementById(id);
-    el.textContent = msg;
-    el.className = `toast ${type}`;
-    el.style.display = 'block';
+    el.textContent = msg; el.className = `toast ${type}`; el.style.display = 'block';
     setTimeout(() => { el.style.display = 'none'; }, 4000);
   }
 
-  // ── Load profile ──────────────────────────────────────────────────
   async function loadProfile() {
     const res = await apiFetch('/api/profile');
     const d   = await res.json();
-    document.getElementById('accountInfo').innerHTML =
-      `Signed in as <strong>${d.email}</strong>`;
-    document.getElementById('display_name').value = d.display_name ?? '';
+    document.getElementById('accountInfo').innerHTML = `Signed in as <strong>${d.email}</strong>`;
+    document.getElementById('display_name').value  = d.display_name ?? '';
     document.getElementById('profile_text').value  = d.profile_text ?? '';
     document.getElementById('resumeStatus').innerHTML = d.has_resume
       ? '<span class="dot"></span>Resume on file'
@@ -176,7 +288,6 @@
   }
   loadProfile();
 
-  // ── Save name ─────────────────────────────────────────────────────
   document.getElementById('nameForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('nameBtn');
@@ -190,7 +301,6 @@
     btn.disabled = false; btn.textContent = 'Save Name';
   });
 
-  // ── Upload resume ─────────────────────────────────────────────────
   const resumeFile = document.getElementById('resumeFile');
   resumeFile.addEventListener('change', () => {
     document.getElementById('chosenResume').textContent = resumeFile.files[0]?.name ?? '';
@@ -210,7 +320,6 @@
     btn.disabled = false; btn.textContent = 'Upload Resume';
   });
 
-  // ── Save profile guide ────────────────────────────────────────────
   document.getElementById('profileForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('profileBtn');
@@ -224,7 +333,6 @@
     btn.disabled = false; btn.textContent = 'Save Profile';
   });
 
-  // ── Change password ───────────────────────────────────────────────
   document.getElementById('pwForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn  = document.getElementById('pwBtn');
@@ -239,7 +347,6 @@
     btn.disabled = false; btn.textContent = 'Update Password';
   });
 
-  // ── Logout ────────────────────────────────────────────────────────
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     window.location.href = '/login.html';

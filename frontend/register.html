@@ -4,39 +4,89 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Create Account — Job Application Agent</title>
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <script>
+    (function(){
+      var t = localStorage.getItem('theme') ||
+              (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
+
     :root {
-      --primary: #1A3C5E; --border: #2B6CB0; --fill: #EEF4FB;
-      --text: #111827; --muted: #6B7280; --error: #DC2626;
+      --primary:      #1A3C5E;
+      --border:       #2B6CB0;
+      --fill:         #EEF4FB;
+      --text:         #111827;
+      --muted:        #6B7280;
+      --error:        #DC2626;
+      --bg-page:      #F9FAFB;
+      --bg-card:      #FFFFFF;
+      --card-border:  #E5E7EB;
+      --input-bg:     #FFFFFF;
+      --input-border: #D1D5DB;
     }
+
+    [data-theme="dark"] {
+      --primary:      #A5B4FC;
+      --border:       #6366F1;
+      --fill:         #1E1B3A;
+      --text:         #EEF2FF;
+      --muted:        #94A3B8;
+      --error:        #F87171;
+      --bg-page:      #09090F;
+      --bg-card:      #111120;
+      --card-border:  #1E1E32;
+      --input-bg:     #14142A;
+      --input-border: #2D2D50;
+    }
+
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      background: #F9FAFB; color: var(--text);
+      background: var(--bg-page); color: var(--text);
       min-height: 100vh; display: flex; align-items: flex-start; justify-content: center;
-      padding: 2rem 1rem;
+      padding: 2rem 1rem; transition: background .2s, color .2s;
     }
+
     .card {
-      background: white; border: 1px solid #E5E7EB;
+      background: var(--bg-card); border: 1px solid var(--card-border);
       border-radius: 10px; padding: 2rem; width: 100%; max-width: 560px;
+      transition: background .2s, border-color .2s;
     }
-    .logo { font-size: 1.4rem; font-weight: 700; color: var(--primary); margin-bottom: .25rem; }
-    .sub  { font-size: .875rem; color: var(--muted); margin-bottom: 1.75rem; }
+
+    .logo-wrap { display: flex; align-items: center; gap: .75rem; margin-bottom: .25rem; }
+    .logo-img  { width: 36px; height: 36px; }
+    .logo-light { display: block; }
+    .logo-dark  { display: none;  }
+    [data-theme="dark"] .logo-light { display: none;  }
+    [data-theme="dark"] .logo-dark  { display: block; }
+
+    .logo { font-size: 1.2rem; font-weight: 700; color: var(--primary); }
+    .sub  { font-size: .875rem; color: var(--muted); margin-bottom: 1.75rem; margin-top: .2rem; }
+
     .field { margin-bottom: 1rem; }
     label  { display: block; font-weight: 600; font-size: .825rem; margin-bottom: .3rem; }
     label .opt { font-weight: 400; color: var(--muted); }
+
     input[type="text"], input[type="email"], input[type="password"], textarea {
-      width: 100%; padding: .5rem .75rem; border: 1px solid #D1D5DB;
-      border-radius: 6px; font-size: .9rem; font-family: inherit; color: var(--text);
+      width: 100%; padding: .5rem .75rem;
+      border: 1px solid var(--input-border); border-radius: 6px;
+      font-size: .9rem; font-family: inherit;
+      background: var(--input-bg); color: var(--text);
+      transition: border-color .15s, background .2s, color .2s;
     }
     input:focus, textarea:focus {
-      outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(43,108,176,.12);
+      outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(99,102,241,.15);
     }
     textarea { resize: vertical; min-height: 220px; line-height: 1.5; }
+
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
     @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+
     .file-drop {
-      border: 2px dashed #D1D5DB; border-radius: 8px;
+      border: 2px dashed var(--input-border); border-radius: 8px;
       padding: 1.25rem; text-align: center; cursor: pointer;
       transition: border-color .15s, background .15s; position: relative;
     }
@@ -45,23 +95,44 @@
     .file-drop .icon   { font-size: 1.5rem; margin-bottom: .25rem; }
     .file-drop .hint   { font-size: .8rem; color: var(--muted); }
     .file-drop .chosen { font-size: .85rem; font-weight: 600; color: var(--primary); margin-top: .25rem; }
-    .divider { border: none; border-top: 1px solid #E5E7EB; margin: 1.5rem 0; }
-    .section-label { font-size: .75rem; font-weight: 700; letter-spacing: .06em;
-      text-transform: uppercase; color: var(--muted); margin-bottom: .75rem; }
-    .btn {
-      width: 100%; padding: .625rem; background: var(--primary); color: white;
-      border: none; border-radius: 6px; font-size: .95rem; font-weight: 600;
-      cursor: pointer; margin-top: .5rem; display: flex; align-items: center; justify-content: center; gap: .5rem;
+
+    .divider { border: none; border-top: 1px solid var(--card-border); margin: 1.5rem 0; }
+    .section-label {
+      font-size: .75rem; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: .75rem;
     }
-    .btn:hover { background: #15304e; }
+
+    .btn {
+      width: 100%; padding: .625rem;
+      background: var(--primary); color: white;
+      border: none; border-radius: 6px;
+      font-size: .95rem; font-weight: 600;
+      cursor: pointer; margin-top: .5rem;
+      display: flex; align-items: center; justify-content: center; gap: .5rem;
+      transition: filter .15s;
+    }
+    .btn:hover { filter: brightness(1.12); }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
+
     .err {
       background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px;
       padding: .625rem .875rem; color: var(--error); font-size: .825rem;
       margin-bottom: 1rem; display: none;
     }
+    [data-theme="dark"] .err { background: #2B1010; border-color: #7F1D1D; }
+
     .footer { text-align: center; margin-top: 1.25rem; font-size: .825rem; color: var(--muted); }
     .footer a { color: var(--border); text-decoration: none; font-weight: 600; }
+
+    .theme-toggle {
+      position: fixed; top: 1rem; right: 1rem;
+      background: var(--bg-card); border: 1px solid var(--card-border);
+      border-radius: 20px; padding: .3rem .65rem;
+      cursor: pointer; font-size: .8rem; color: var(--muted);
+      transition: border-color .15s, color .15s;
+    }
+    .theme-toggle:hover { border-color: var(--border); color: var(--text); }
+
     .spin {
       display: inline-block; width: 14px; height: 14px;
       border: 2px solid rgba(255,255,255,.4); border-top-color: white;
@@ -71,8 +142,13 @@
   </style>
 </head>
 <body>
+<button class="theme-toggle" id="themeToggle"><span id="themeIcon"></span></button>
 <div class="card">
-  <div class="logo">Job Application Agent</div>
+  <div class="logo-wrap">
+    <img class="logo-img logo-light" src="/img/logo-light.png" alt="Logo">
+    <img class="logo-img logo-dark"  src="/img/logo-dark.png"  alt="Logo">
+    <div class="logo">Job Application Agent</div>
+  </div>
   <div class="sub">Create your account</div>
   <div class="err" id="err"></div>
   <form id="regForm" enctype="multipart/form-data">
@@ -124,6 +200,18 @@
   <div class="footer">Already have an account? <a href="/login.html">Sign in →</a></div>
 </div>
 <script>
+  const ICONS = { light: '☀', dark: '🌙' };
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('theme', t);
+    document.getElementById('themeIcon').textContent = ICONS[t];
+  }
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+  document.getElementById('themeIcon').textContent =
+    ICONS[document.documentElement.getAttribute('data-theme')] || ICONS.light;
+
   // Profile template
   const TEMPLATE = `# [Your Name] — Candidate Profile & Voice Guide
 
@@ -170,26 +258,18 @@
 
   document.getElementById('profile_text').value = TEMPLATE;
 
-  // File drop zone
-  const dropZone = document.getElementById('dropZone');
+  const dropZone  = document.getElementById('dropZone');
   const fileInput = document.getElementById('resumeFile');
   const chosenFile = document.getElementById('chosenFile');
 
-  fileInput.addEventListener('change', () => {
-    chosenFile.textContent = fileInput.files[0]?.name ?? '';
-  });
-  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('over'); });
+  fileInput.addEventListener('change', () => { chosenFile.textContent = fileInput.files[0]?.name ?? ''; });
+  dropZone.addEventListener('dragover',  (e) => { e.preventDefault(); dropZone.classList.add('over'); });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
   dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('over');
-    if (e.dataTransfer.files.length) {
-      fileInput.files = e.dataTransfer.files;
-      chosenFile.textContent = fileInput.files[0].name;
-    }
+    e.preventDefault(); dropZone.classList.remove('over');
+    if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; chosenFile.textContent = fileInput.files[0].name; }
   });
 
-  // Form submit
   document.getElementById('regForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('submitBtn');
@@ -197,10 +277,9 @@
     err.style.display = 'none';
     btn.disabled = true;
     btn.innerHTML = '<span class="spin"></span> Creating account…';
-
     const fd = new FormData(e.target);
     try {
-      const res = await fetch('/api/auth/register', { method: 'POST', body: fd });
+      const res  = await fetch('/api/auth/register', { method: 'POST', body: fd });
       const body = await res.json();
       if (!res.ok) {
         err.textContent = body.detail ?? 'Registration failed.';
