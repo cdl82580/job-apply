@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile — Job Application Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --primary: #1A3C5E; --border: #2B6CB0; --fill: #EEF4FB;
+      --text: #111827; --muted: #6B7280; --error: #DC2626; --success: #065F46;
+      --radius: 8px;
+    }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #F9FAFB; color: var(--text); margin: 0; padding: 2rem 1rem; }
+    .container { max-width: 680px; margin: 0 auto; }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 2px solid var(--primary); }
+    .logo { font-size: 1.3rem; font-weight: 700; color: var(--primary); }
+    .back { font-size: .875rem; color: var(--border); text-decoration: none; font-weight: 600; }
+    .back:hover { text-decoration: underline; }
+    .card { background: white; border: 1px solid #E5E7EB; border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card-title { font-size: .95rem; font-weight: 700; color: var(--primary); margin: 0 0 1.25rem; }
+    .field { margin-bottom: 1rem; }
+    .field:last-child { margin-bottom: 0; }
+    label { display: block; font-weight: 600; font-size: .825rem; margin-bottom: .3rem; }
+    label .opt { font-weight: 400; color: var(--muted); }
+    input[type="text"], input[type="password"], textarea {
+      width: 100%; padding: .5rem .75rem; border: 1px solid #D1D5DB;
+      border-radius: 6px; font-size: .9rem; font-family: inherit; color: var(--text);
+    }
+    input:focus, textarea:focus { outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(43,108,176,.12); }
+    textarea { resize: vertical; min-height: 280px; line-height: 1.5; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+    .btn {
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .5rem 1.25rem; background: var(--primary); color: white;
+      border: none; border-radius: 6px; font-size: .875rem; font-weight: 600; cursor: pointer;
+    }
+    .btn:hover { background: #15304e; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-ghost { background: white; color: var(--primary); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--fill); }
+    .btn-danger { background: white; color: var(--error); border: 1px solid #FECACA; }
+    .btn-danger:hover { background: #FEF2F2; }
+    .toast {
+      font-size: .825rem; padding: .5rem .875rem; border-radius: 6px; margin-top: .75rem; display: none;
+    }
+    .toast.ok  { background: #D1FAE5; color: var(--success); }
+    .toast.err { background: #FEF2F2; color: var(--error); }
+    .file-info { font-size: .825rem; color: var(--muted); margin-bottom: .75rem; }
+    .file-info .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34D399; margin-right: .4rem; }
+    .file-drop {
+      border: 2px dashed #D1D5DB; border-radius: 8px;
+      padding: 1rem; text-align: center; cursor: pointer; position: relative;
+      transition: border-color .15s, background .15s;
+    }
+    .file-drop:hover { border-color: var(--border); background: var(--fill); }
+    .file-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .file-drop .hint  { font-size: .8rem; color: var(--muted); }
+    .file-drop .chosen { font-size: .85rem; font-weight: 600; color: var(--primary); margin-top: .25rem; }
+    .spin {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: white;
+      border-radius: 50%; animation: rot .7s linear infinite;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+    .account-info { font-size: .875rem; color: var(--muted); margin-bottom: 1.25rem; }
+    .account-info strong { color: var(--text); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">Profile Settings</div>
+    <a class="back" href="/">← Back to App</a>
+  </header>
+
+  <!-- Account info -->
+  <div class="card">
+    <p class="card-title">Account</p>
+    <p class="account-info" id="accountInfo">Loading…</p>
+    <form id="nameForm">
+      <div class="field">
+        <label for="display_name">Display Name</label>
+        <input id="display_name" name="display_name" type="text" required>
+      </div>
+      <button class="btn" type="submit" id="nameBtn">Save Name</button>
+      <div class="toast" id="nameToast"></div>
+    </form>
+  </div>
+
+  <!-- Master Resume -->
+  <div class="card">
+    <p class="card-title">Master Resume</p>
+    <div class="file-info" id="resumeStatus"></div>
+    <form id="resumeForm" enctype="multipart/form-data">
+      <div class="field">
+        <label>Upload New Resume (.docx)</label>
+        <div class="file-drop">
+          <input type="file" name="resume" id="resumeFile" accept=".docx" required>
+          <div class="hint">Click to browse or drag &amp; drop</div>
+          <div class="chosen" id="chosenResume"></div>
+        </div>
+      </div>
+      <button class="btn" type="submit" id="resumeBtn">Upload Resume</button>
+      <div class="toast" id="resumeToast"></div>
+    </form>
+  </div>
+
+  <!-- Profile guide -->
+  <div class="card">
+    <p class="card-title">Profile &amp; Voice Guide</p>
+    <p style="font-size:.825rem;color:var(--muted);margin:0 0 .875rem">
+      This tells the AI how to write in your voice. The more detail the better.
+    </p>
+    <form id="profileForm">
+      <div class="field">
+        <textarea id="profile_text" name="profile_text"></textarea>
+      </div>
+      <button class="btn" type="submit" id="profileBtn">Save Profile</button>
+      <div class="toast" id="profileToast"></div>
+    </form>
+  </div>
+
+  <!-- Password -->
+  <div class="card">
+    <p class="card-title">Change Password</p>
+    <form id="pwForm">
+      <div class="row">
+        <div class="field">
+          <label for="current_password">Current Password</label>
+          <input id="current_password" name="current_password" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="field">
+          <label for="new_password">New Password <span class="opt">(min 8)</span></label>
+          <input id="new_password" name="new_password" type="password" autocomplete="new-password" required minlength="8">
+        </div>
+      </div>
+      <button class="btn" type="submit" id="pwBtn">Update Password</button>
+      <div class="toast" id="pwToast"></div>
+    </form>
+  </div>
+
+  <!-- Logout -->
+  <div style="text-align:right; padding-bottom:2rem">
+    <button class="btn btn-ghost" id="logoutBtn">Sign Out</button>
+  </div>
+</div>
+<script>
+  // ── Redirect to login on 401 ──────────────────────────────────────
+  async function apiFetch(url, opts = {}) {
+    const res = await fetch(url, opts);
+    if (res.status === 401) { window.location.href = '/login.html'; throw new Error('401'); }
+    return res;
+  }
+
+  function toast(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `toast ${type}`;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+
+  // ── Load profile ──────────────────────────────────────────────────
+  async function loadProfile() {
+    const res = await apiFetch('/api/profile');
+    const d   = await res.json();
+    document.getElementById('accountInfo').innerHTML =
+      `Signed in as <strong>${d.email}</strong>`;
+    document.getElementById('display_name').value = d.display_name ?? '';
+    document.getElementById('profile_text').value  = d.profile_text ?? '';
+    document.getElementById('resumeStatus').innerHTML = d.has_resume
+      ? '<span class="dot"></span>Resume on file'
+      : '<span style="color:var(--error)">⚠ No resume uploaded yet</span>';
+  }
+  loadProfile();
+
+  // ── Save name ─────────────────────────────────────────────────────
+  document.getElementById('nameForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('nameBtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+    const res  = await apiFetch('/api/profile', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: document.getElementById('display_name').value }),
+    });
+    const body = await res.json();
+    toast('nameToast', res.ok ? '✓ Name saved.' : (body.detail ?? 'Error'), res.ok ? 'ok' : 'err');
+    btn.disabled = false; btn.textContent = 'Save Name';
+  });
+
+  // ── Upload resume ─────────────────────────────────────────────────
+  const resumeFile = document.getElementById('resumeFile');
+  resumeFile.addEventListener('change', () => {
+    document.getElementById('chosenResume').textContent = resumeFile.files[0]?.name ?? '';
+  });
+  document.getElementById('resumeForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('resumeBtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Uploading…';
+    const res  = await apiFetch('/api/profile/resume', { method: 'POST', body: new FormData(e.target) });
+    const body = await res.json();
+    if (res.ok) {
+      document.getElementById('resumeStatus').innerHTML = '<span class="dot"></span>Resume on file';
+      document.getElementById('chosenResume').textContent = '';
+      resumeFile.value = '';
+    }
+    toast('resumeToast', res.ok ? '✓ Resume updated.' : (body.detail ?? 'Error'), res.ok ? 'ok' : 'err');
+    btn.disabled = false; btn.textContent = 'Upload Resume';
+  });
+
+  // ── Save profile guide ────────────────────────────────────────────
+  document.getElementById('profileForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('profileBtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Saving…';
+    const res  = await apiFetch('/api/profile', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_text: document.getElementById('profile_text').value }),
+    });
+    const body = await res.json();
+    toast('profileToast', res.ok ? '✓ Profile saved.' : (body.detail ?? 'Error'), res.ok ? 'ok' : 'err');
+    btn.disabled = false; btn.textContent = 'Save Profile';
+  });
+
+  // ── Change password ───────────────────────────────────────────────
+  document.getElementById('pwForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn  = document.getElementById('pwBtn');
+    const data = Object.fromEntries(new FormData(e.target));
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Updating…';
+    const res  = await apiFetch('/api/profile/password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    const body = await res.json();
+    if (res.ok) document.getElementById('pwForm').reset();
+    toast('pwToast', res.ok ? '✓ Password updated.' : (body.detail ?? 'Error'), res.ok ? 'ok' : 'err');
+    btn.disabled = false; btn.textContent = 'Update Password';
+  });
+
+  // ── Logout ────────────────────────────────────────────────────────
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login.html';
+  });
+</script>
+</body>
+</html>

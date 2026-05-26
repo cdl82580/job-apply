@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Account — Job Application Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --primary: #1A3C5E; --border: #2B6CB0; --fill: #EEF4FB;
+      --text: #111827; --muted: #6B7280; --error: #DC2626;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #F9FAFB; color: var(--text);
+      min-height: 100vh; display: flex; align-items: flex-start; justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .card {
+      background: white; border: 1px solid #E5E7EB;
+      border-radius: 10px; padding: 2rem; width: 100%; max-width: 560px;
+    }
+    .logo { font-size: 1.4rem; font-weight: 700; color: var(--primary); margin-bottom: .25rem; }
+    .sub  { font-size: .875rem; color: var(--muted); margin-bottom: 1.75rem; }
+    .field { margin-bottom: 1rem; }
+    label  { display: block; font-weight: 600; font-size: .825rem; margin-bottom: .3rem; }
+    label .opt { font-weight: 400; color: var(--muted); }
+    input[type="text"], input[type="email"], input[type="password"], textarea {
+      width: 100%; padding: .5rem .75rem; border: 1px solid #D1D5DB;
+      border-radius: 6px; font-size: .9rem; font-family: inherit; color: var(--text);
+    }
+    input:focus, textarea:focus {
+      outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(43,108,176,.12);
+    }
+    textarea { resize: vertical; min-height: 220px; line-height: 1.5; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+    .file-drop {
+      border: 2px dashed #D1D5DB; border-radius: 8px;
+      padding: 1.25rem; text-align: center; cursor: pointer;
+      transition: border-color .15s, background .15s; position: relative;
+    }
+    .file-drop:hover, .file-drop.over { border-color: var(--border); background: var(--fill); }
+    .file-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .file-drop .icon   { font-size: 1.5rem; margin-bottom: .25rem; }
+    .file-drop .hint   { font-size: .8rem; color: var(--muted); }
+    .file-drop .chosen { font-size: .85rem; font-weight: 600; color: var(--primary); margin-top: .25rem; }
+    .divider { border: none; border-top: 1px solid #E5E7EB; margin: 1.5rem 0; }
+    .section-label { font-size: .75rem; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: .75rem; }
+    .btn {
+      width: 100%; padding: .625rem; background: var(--primary); color: white;
+      border: none; border-radius: 6px; font-size: .95rem; font-weight: 600;
+      cursor: pointer; margin-top: .5rem; display: flex; align-items: center; justify-content: center; gap: .5rem;
+    }
+    .btn:hover { background: #15304e; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .err {
+      background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px;
+      padding: .625rem .875rem; color: var(--error); font-size: .825rem;
+      margin-bottom: 1rem; display: none;
+    }
+    .footer { text-align: center; margin-top: 1.25rem; font-size: .825rem; color: var(--muted); }
+    .footer a { color: var(--border); text-decoration: none; font-weight: 600; }
+    .spin {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: white;
+      border-radius: 50%; animation: rot .7s linear infinite;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Job Application Agent</div>
+  <div class="sub">Create your account</div>
+  <div class="err" id="err"></div>
+  <form id="regForm" enctype="multipart/form-data">
+
+    <div class="row">
+      <div class="field">
+        <label for="display_name">Your Name</label>
+        <input id="display_name" name="display_name" type="text" required placeholder="Jane Smith">
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+      </div>
+    </div>
+    <div class="field">
+      <label for="password">Password <span class="opt">(min 8 characters)</span></label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="••••••••">
+    </div>
+
+    <hr class="divider">
+    <div class="section-label">Master Resume</div>
+    <p style="font-size:.825rem;color:var(--muted);margin:0 0 .875rem">
+      Upload the DOCX you want tailored for each application.
+      Every run starts from this file — you can replace it later in your profile.
+    </p>
+    <div class="field">
+      <label>Resume File (.docx)</label>
+      <div class="file-drop" id="dropZone">
+        <input type="file" name="resume" id="resumeFile" accept=".docx" required>
+        <div class="icon">📄</div>
+        <div class="hint">Click to browse or drag &amp; drop</div>
+        <div class="chosen" id="chosenFile"></div>
+      </div>
+    </div>
+
+    <hr class="divider">
+    <div class="section-label">Profile &amp; Voice Guide</div>
+    <p style="font-size:.825rem;color:var(--muted);margin:0 0 .875rem">
+      This tells the AI how to write in your voice. Fill in the template below — the more
+      detail you add, the better the output.
+    </p>
+    <div class="field">
+      <label for="profile_text">Profile Guide</label>
+      <textarea id="profile_text" name="profile_text" required></textarea>
+    </div>
+
+    <button class="btn" type="submit" id="submitBtn">Create Account</button>
+  </form>
+  <div class="footer">Already have an account? <a href="/login.html">Sign in →</a></div>
+</div>
+<script>
+  // Profile template
+  const TEMPLATE = `# [Your Name] — Candidate Profile & Voice Guide
+
+## Identity & Positioning
+[2-3 sentences: who you are, what you do, what makes you different from others in your field]
+
+## Contact
+- Email: [your email]
+- Location: [city, state]
+- LinkedIn: [your linkedin URL]
+
+## Voice & Tone Rules
+**DO:**
+- Write in first person, direct and conversational
+- Lead with specifics: numbers, system names, outcomes, timelines
+- Use active verbs: built, shipped, owned, designed, led, delivered
+- Echo language from the job posting where it rings true
+
+**DO NOT:**
+- "I am excited to apply for..."
+- "passion for", "leverage", "synergy", "results-driven"
+- Vague claims without specifics ("improved processes significantly")
+- Starting bullets with "Responsible for..."
+
+## Career Timeline
+| Company | Title | Dates |
+|---------|-------|-------|
+| [Most Recent] | [Title] | [Date] – Present |
+| [Previous]    | [Title] | [Date] – [Date]  |
+
+## Key Stories & Proof Points
+[Your 3–5 strongest achievements with metrics, e.g.:]
+- Built X that reduced Y by Z%
+- Led integration of A with B, cutting processing time from X to Y
+- Delivered [project] on time despite [constraint]; outcome: [result]
+
+## Skills & Technologies
+[List your key technical skills, tools, platforms]
+
+## Preferences
+- Open to: [remote/hybrid/onsite]
+- Target roles: [e.g. Solutions Engineer, Integration Engineer, TAM]
+- Not interested in: [anything to exclude]`;
+
+  document.getElementById('profile_text').value = TEMPLATE;
+
+  // File drop zone
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('resumeFile');
+  const chosenFile = document.getElementById('chosenFile');
+
+  fileInput.addEventListener('change', () => {
+    chosenFile.textContent = fileInput.files[0]?.name ?? '';
+  });
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('over');
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      chosenFile.textContent = fileInput.files[0].name;
+    }
+  });
+
+  // Form submit
+  document.getElementById('regForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const err = document.getElementById('err');
+    err.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Creating account…';
+
+    const fd = new FormData(e.target);
+    try {
+      const res = await fetch('/api/auth/register', { method: 'POST', body: fd });
+      const body = await res.json();
+      if (!res.ok) {
+        err.textContent = body.detail ?? 'Registration failed.';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+      } else {
+        window.location.href = '/';
+      }
+    } catch (ex) {
+      err.textContent = 'Network error — please try again.';
+      err.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Create Account';
+    }
+  });
+</script>
+</body>
+</html>

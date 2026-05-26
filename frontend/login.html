@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — Job Application Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --primary: #1A3C5E; --border: #2B6CB0; --fill: #EEF4FB;
+      --text: #111827; --muted: #6B7280; --error: #DC2626;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #F9FAFB; color: var(--text);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: white; border: 1px solid #E5E7EB;
+      border-radius: 10px; padding: 2rem; width: 100%; max-width: 400px;
+    }
+    .logo { font-size: 1.4rem; font-weight: 700; color: var(--primary); margin-bottom: .25rem; }
+    .sub  { font-size: .875rem; color: var(--muted); margin-bottom: 1.75rem; }
+    .field { margin-bottom: 1rem; }
+    label { display: block; font-weight: 600; font-size: .825rem; margin-bottom: .3rem; }
+    input {
+      width: 100%; padding: .5rem .75rem; border: 1px solid #D1D5DB;
+      border-radius: 6px; font-size: .9rem; font-family: inherit;
+    }
+    input:focus { outline: none; border-color: var(--border); box-shadow: 0 0 0 3px rgba(43,108,176,.12); }
+    .btn {
+      width: 100%; padding: .625rem; background: var(--primary); color: white;
+      border: none; border-radius: 6px; font-size: .95rem; font-weight: 600;
+      cursor: pointer; margin-top: .5rem; display: flex; align-items: center; justify-content: center; gap: .5rem;
+    }
+    .btn:hover { background: #15304e; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .err {
+      background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px;
+      padding: .625rem .875rem; color: var(--error); font-size: .825rem;
+      margin-bottom: 1rem; display: none;
+    }
+    .footer { text-align: center; margin-top: 1.25rem; font-size: .825rem; color: var(--muted); }
+    .footer a { color: var(--border); text-decoration: none; font-weight: 600; }
+    .spin {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: white;
+      border-radius: 50%; animation: rot .7s linear infinite;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Job Application Agent</div>
+  <div class="sub">Sign in to your account</div>
+  <div class="err" id="err"></div>
+  <form id="loginForm">
+    <div class="field">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+    </div>
+    <button class="btn" type="submit" id="submitBtn">Sign In</button>
+  </form>
+  <div class="footer">Don't have an account? <a href="/register.html">Create one →</a></div>
+</div>
+<script>
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const err = document.getElementById('err');
+    const data = Object.fromEntries(new FormData(e.target));
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Signing in…';
+    err.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        err.textContent = body.detail ?? 'Sign in failed.';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      } else {
+        window.location.href = '/';
+      }
+    } catch (ex) {
+      err.textContent = 'Network error — please try again.';
+      err.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  });
+</script>
+</body>
+</html>

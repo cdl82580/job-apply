@@ -84,10 +84,14 @@ class WorkflowError(Exception):
 @dataclass
 class WorkflowConfig:
     """Runtime settings for a single workflow run."""
-    model:    str                    = DEFAULT_MODEL
-    progress: Callable[[str], None]  = field(default=print)
-    debug:    bool                   = False
-    dry_run:  bool                   = False
+    model:         str                    = DEFAULT_MODEL
+    progress:      Callable[[str], None]  = field(default=print)
+    debug:         bool                   = False
+    dry_run:       bool                   = False
+    # Per-user overrides — set by the server for multi-user deployments.
+    # CLI single-user runs leave these as None and fall back to module constants.
+    master_resume: Path | None            = None
+    profile_text:  str | None             = None
 
 
 @dataclass
@@ -209,7 +213,8 @@ def print_step(n: str | int, title: str, config: WorkflowConfig | None = None):
 
 def extract_resume_text(config: WorkflowConfig | None = None) -> str:
     """Extract plain text from the master resume using pandoc."""
-    result = run(["pandoc", str(MASTER_RESUME), "-t", "plain"], config=config)
+    resume = (config.master_resume if config and config.master_resume else MASTER_RESUME)
+    result = run(["pandoc", str(resume), "-t", "plain"], config=config)
     return result.stdout
 
 
@@ -231,15 +236,16 @@ def step1_read_inputs(
     Returns (job_posting, resume_text, profile)."""
     print_step(1, "Reading Inputs", config)
 
-    if not MASTER_RESUME.exists():
-        raise WorkflowError(f"Master resume not found at {MASTER_RESUME}")
-    if not PROFILE_FILE.exists():
-        raise WorkflowError(f"Profile not found at {PROFILE_FILE}")
+    resume = config.master_resume if config.master_resume else MASTER_RESUME
+    if not resume.exists():
+        raise WorkflowError(f"Master resume not found at {resume}")
+    if config.profile_text is None and not PROFILE_FILE.exists():
+        raise WorkflowError(f"Profile not found at {PROFILE_FILE} and no profile_text provided")
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise WorkflowError("ANTHROPIC_API_KEY environment variable not set")
 
     resume_text = extract_resume_text(config)
-    profile     = read_file(PROFILE_FILE)
+    profile     = config.profile_text if config.profile_text is not None else read_file(PROFILE_FILE)
 
     config.progress(f"  ✓ Job posting ({len(job_posting)} chars)")
     config.progress(f"  ✓ Master resume ({len(resume_text)} chars)")
@@ -486,10 +492,11 @@ def step2b_brand_colors(company: str, config: WorkflowConfig) -> dict:
 
 def step3_unpack(config: WorkflowConfig):
     print_step(3, "Unpacking Master Resume", config)
+    resume = config.master_resume if config.master_resume else MASTER_RESUME
     if UNPACK_DIR.exists():
         shutil.rmtree(UNPACK_DIR)
     run(
-        ["python3", str(SCRIPTS_DIR / "unpack.py"), str(MASTER_RESUME), str(UNPACK_DIR) + "/"],
+        ["python3", str(SCRIPTS_DIR / "unpack.py"), str(resume), str(UNPACK_DIR) + "/"],
         config=config,
     )
     config.progress("  ✓ Unpacked")
@@ -623,9 +630,10 @@ Return ONLY valid JSON array.
 
 def step5_pack(resume_out: Path, config: WorkflowConfig):
     print_step(5, "Packing Resume", config)
+    resume = config.master_resume if config.master_resume else MASTER_RESUME
     run(
         ["python3", str(SCRIPTS_DIR / "pack.py"), str(UNPACK_DIR) + "/",
-         str(resume_out), "--original", str(MASTER_RESUME)],
+         str(resume_out), "--original", str(resume)],
         config=config,
     )
     config.progress(f"  ✓ Resume written to {resume_out}")

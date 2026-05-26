@@ -40,43 +40,19 @@
     header h1 { font-size: 1.5rem; font-weight: 700; color: var(--primary); margin: 0 0 .25rem; }
     header p  { color: var(--muted); margin: 0; font-size: .9rem; }
 
-    .settings-toggle {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 1.2rem;
-      padding: .25rem;
-      border-radius: 4px;
-      line-height: 1;
-      transition: color .15s, background .15s;
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
       flex-shrink: 0;
-      margin-top: .2rem;
+      margin-top: .25rem;
     }
-    .settings-toggle:hover { color: var(--primary); background: var(--fill); }
-
-    /* ── Settings (password change) ──────────────────────────────── */
-    .settings-panel {
-      background: white;
-      border-radius: var(--radius);
-      border: 1px solid #E5E7EB;
-      padding: 1.25rem 1.5rem;
-      margin-bottom: 1.5rem;
+    .header-user { font-size: .825rem; color: var(--muted); }
+    .header-link {
+      font-size: .825rem; font-weight: 600; color: var(--border);
+      text-decoration: none; background: none; border: none; cursor: pointer; padding: 0;
     }
-    .settings-panel h3 { font-size: .9rem; font-weight: 700; margin: 0 0 1rem; color: var(--primary); }
-
-    .pw-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: .875rem; }
-    @media (max-width: 520px) { .pw-fields { grid-template-columns: 1fr; } }
-
-    .settings-result {
-      font-size: .825rem;
-      padding: .6rem .875rem;
-      border-radius: 6px;
-      margin-top: .75rem;
-      display: none;
-    }
-    .settings-result.ok  { background: #D1FAE5; color: var(--success); }
-    .settings-result.err { background: #FEE2E2; color: var(--error); }
+    .header-link:hover { text-decoration: underline; }
 
     .card {
       background: white;
@@ -302,27 +278,12 @@
       <h1>Job Application Agent</h1>
       <p>Paste a job posting to generate a tailored resume, ATS resume, and cover letter.</p>
     </div>
-    <button class="settings-toggle" id="settingsToggle" title="Change password">&#9881;</button>
+    <div class="header-actions">
+      <span class="header-user" id="headerUser"></span>
+      <a class="header-link" href="/profile.html">Profile</a>
+      <button class="header-link" id="logoutBtn">Sign Out</button>
+    </div>
   </header>
-
-  <!-- ── Settings panel (hidden by default) ─────────────────────── -->
-  <div class="settings-panel hidden" id="settingsPanel">
-    <h3>&#128274; Change Password</h3>
-    <form id="pwForm">
-      <div class="pw-fields">
-        <div class="field" style="margin-bottom:0">
-          <label for="pwCurrent">Current Password</label>
-          <input id="pwCurrent" name="current_password" type="password" autocomplete="current-password" required>
-        </div>
-        <div class="field" style="margin-bottom:0">
-          <label for="pwNew">New Password <span class="opt">(min 8 chars)</span></label>
-          <input id="pwNew" name="new_password" type="password" autocomplete="new-password" required minlength="8">
-        </div>
-      </div>
-      <button class="btn" type="submit" id="pwSubmitBtn" style="margin-top:.875rem">Update Password</button>
-    </form>
-    <div class="settings-result" id="settingsResult"></div>
-  </div>
 
   <!-- ── Input form ──────────────────────────────────────────────── -->
   <div class="card" id="formCard">
@@ -390,6 +351,27 @@
 </div><!-- /container -->
 
 <script>
+  // ── Auth helpers ─────────────────────────────────────────────────
+  async function apiFetch(url, opts = {}) {
+    const res = await fetch(url, opts);
+    if (res.status === 401) { window.location.href = '/login.html'; throw new Error('401'); }
+    return res;
+  }
+
+  // Load user info on startup
+  (async () => {
+    try {
+      const res = await apiFetch('/api/auth/me');
+      const u   = await res.json();
+      document.getElementById('headerUser').textContent = u.display_name || u.email;
+    } catch (_) {}
+  })();
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login.html';
+  });
+
   const form       = document.getElementById('runForm');
   const submitBtn  = document.getElementById('submitBtn');
   const logEl      = document.getElementById('logEl');
@@ -435,14 +417,15 @@
     // Start run
     let run_id;
     try {
-      const res = await fetch('/api/run', {
+      const res = await apiFetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      if (!res.ok) throw new Error((await res.json()).detail ?? `Server error ${res.status}`);
       ({ run_id } = await res.json());
     } catch (err) {
+      if (err.message === '401') return;
       appendLog('❌ Failed to start: ' + err.message);
       setBadge('error');
       submitBtn.disabled = false;
@@ -451,7 +434,7 @@
     }
 
     // Show queue note if another run is in progress
-    const st = await fetch(`/api/run/${run_id}/status`).then(r => r.json());
+    const st = await apiFetch(`/api/run/${run_id}/status`).then(r => r.json());
     if (st.status === 'queued') {
       setBadge('queued');
       show('queueNote');
@@ -541,61 +524,6 @@
       show('driveAnchor');
     }
   }
-
-  // ── Settings: toggle panel ───────────────────────────────────────
-  document.getElementById('settingsToggle').addEventListener('click', () => {
-    const panel = document.getElementById('settingsPanel');
-    const isHidden = panel.classList.contains('hidden');
-    panel.classList.toggle('hidden');
-    if (isHidden) {
-      document.getElementById('pwCurrent').focus();
-    } else {
-      document.getElementById('pwForm').reset();
-      const r = document.getElementById('settingsResult');
-      r.style.display = 'none';
-      r.className = 'settings-result';
-    }
-  });
-
-  // ── Settings: change password ─────────────────────────────────────
-  document.getElementById('pwForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById('pwSubmitBtn');
-    const result = document.getElementById('settingsResult');
-    const data = Object.fromEntries(new FormData(e.target));
-
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spin"></span> Updating…';
-    result.style.display = 'none';
-
-    try {
-      const res = await fetch('/api/settings/password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const body = await res.json();
-
-      if (!res.ok) {
-        result.className = 'settings-result err';
-        result.textContent = '❌ ' + (body.detail ?? 'Something went wrong.');
-      } else {
-        result.className = 'settings-result ok';
-        const lines = ['✓ Password updated.'];
-        if (body.emailed)   lines.push(`✓ Confirmation sent to ${body.email_to}.`);
-        if (!body.persisted) lines.push('⚠ Not yet permanent — run: fly secrets set APP_PASSWORD="…" --app job-apply-corey');
-        result.textContent = lines.join('  ');
-        document.getElementById('pwForm').reset();
-      }
-    } catch (err) {
-      result.className = 'settings-result err';
-      result.textContent = '❌ Request failed: ' + err.message;
-    }
-
-    result.style.display = 'block';
-    btn.disabled = false;
-    btn.textContent = 'Update Password';
-  });
 
   // ── New run ───────────────────────────────────────────────────────
   document.getElementById('newRunBtn').addEventListener('click', () => {
