@@ -17,16 +17,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import uuid
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+# When running on Fly.io each machine has a unique ID in this env var.
+# We set it as a cookie on POST /api/run so Fly.io's proxy pins all follow-up
+# requests (status, stream, file downloads) to the same machine — otherwise the
+# load balancer can route them to a different machine that has no record of the run.
+FLY_MACHINE_ID = os.environ.get("FLY_MACHINE_ID", "")
 
 from apply import (
     DEFAULT_MODEL,
@@ -74,10 +81,15 @@ async def health():
 
 
 @app.post("/api/run")
-async def create_run(req: RunRequest):
+async def create_run(req: RunRequest, response: Response):
     run_id = str(uuid.uuid4())
     q: Queue[dict | None] = Queue()
     _runs[run_id] = {"queue": q, "status": "queued", "result": None, "error": None}
+
+    # Pin the browser session to this machine so status/stream/file requests
+    # don't land on a different Fly.io machine that has no memory of this run.
+    if FLY_MACHINE_ID:
+        response.set_cookie("fly-force-instance-id", FLY_MACHINE_ID, path="/", samesite="lax")
 
     def _thread():
         # Update status once we acquire the lock (another run may be in progress)
