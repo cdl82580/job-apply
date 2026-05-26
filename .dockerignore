@@ -1,0 +1,14 @@
+.env
+.git
+.DS_Store
+gdrive_credentials.json
+node_modules
+output
+unpacked
+__pycache__
+*.pyc
+*.pyo
+cover_letter_gen.js
+ats_resume_gen.js
+edit_resume.py
+~$*

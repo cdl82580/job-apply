@@ -1,0 +1,29 @@
+# Secrets and credentials — never commit
+.env
+gdrive_credentials.json
+
+# Generated output
+output/
+unpacked/
+
+# Temp files from workflow
+cover_letter_gen.js
+ats_resume_gen.js
+edit_*.py
+gen_ats_*.py
+_ats_gen_tmp.js
+~$*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# macOS
+.DS_Store

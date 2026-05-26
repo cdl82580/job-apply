@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Application Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --primary: #1A3C5E;
+      --border:  #2B6CB0;
+      --fill:    #EEF4FB;
+      --text:    #111827;
+      --muted:   #6B7280;
+      --error:   #DC2626;
+      --success: #065F46;
+      --radius:  8px;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #F9FAFB;
+      color: var(--text);
+      margin: 0;
+      padding: 2rem 1rem;
+      min-height: 100vh;
+    }
+
+    .container { max-width: 760px; margin: 0 auto; }
+
+    header {
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 2px solid var(--primary);
+    }
+    header h1 { font-size: 1.5rem; font-weight: 700; color: var(--primary); margin: 0 0 .25rem; }
+    header p  { color: var(--muted); margin: 0; font-size: .9rem; }
+
+    .card {
+      background: white;
+      border-radius: var(--radius);
+      border: 1px solid #E5E7EB;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .field { margin-bottom: 1.25rem; }
+    .field:last-child { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: .875rem;
+      margin-bottom: .375rem;
+    }
+    label .opt { font-weight: 400; color: var(--muted); font-size: .8rem; }
+
+    input[type="text"], textarea {
+      width: 100%;
+      padding: .5rem .75rem;
+      border: 1px solid #D1D5DB;
+      border-radius: 6px;
+      font-size: .9rem;
+      font-family: inherit;
+      color: var(--text);
+      background: white;
+      transition: border-color .15s;
+    }
+    input[type="text"]:focus, textarea:focus {
+      outline: none;
+      border-color: var(--border);
+      box-shadow: 0 0 0 3px rgba(43,108,176,.12);
+    }
+    textarea { resize: vertical; min-height: 180px; line-height: 1.5; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .625rem 1.5rem;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    .btn:hover:not(:disabled) { background: #15304e; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: white;
+      color: var(--primary);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover:not(:disabled) { background: var(--fill); }
+
+    /* ── Progress ─────────────────────────────────────────────────── */
+    .progress-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: .75rem;
+    }
+    .progress-header h2 { font-size: 1rem; font-weight: 600; margin: 0; color: var(--primary); }
+
+    .badge {
+      font-size: .72rem;
+      padding: .2rem .6rem;
+      border-radius: 999px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .badge-running { background: #DBEAFE; color: #1D4ED8; }
+    .badge-queued  { background: #FEF3C7; color: #92400E; }
+    .badge-done    { background: #D1FAE5; color: var(--success); }
+    .badge-error   { background: #FEE2E2; color: var(--error); }
+
+    .log {
+      background: #0F172A;
+      color: #CBD5E1;
+      border-radius: 6px;
+      padding: 1rem;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: .78rem;
+      line-height: 1.6;
+      max-height: 380px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .inline-err {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      border-radius: 6px;
+      padding: .75rem 1rem;
+      color: var(--error);
+      font-size: .875rem;
+      margin-top: .75rem;
+      display: none;
+    }
+
+    /* ── Results ──────────────────────────────────────────────────── */
+    .results-h { font-size: 1rem; font-weight: 600; color: var(--success); margin: 0 0 1rem; }
+
+    .framing {
+      background: var(--fill);
+      border-left: 3px solid var(--border);
+      padding: .75rem 1rem;
+      border-radius: 0 6px 6px 0;
+      font-size: .875rem;
+      line-height: 1.5;
+      margin-bottom: 1rem;
+    }
+
+    .files { display: flex; flex-direction: column; gap: .5rem; }
+
+    .file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .625rem .875rem;
+      border: 1px solid #E5E7EB;
+      border-radius: 6px;
+      text-decoration: none;
+      color: var(--text);
+      font-size: .875rem;
+      transition: background .1s, border-color .1s;
+    }
+    .file-row:hover { background: var(--fill); border-color: var(--border); }
+    .file-label { font-weight: 600; }
+    .file-name  { color: var(--muted); font-size: .78rem; margin-top: .1rem; }
+    .file-arrow { color: var(--border); font-size: 1.1rem; flex-shrink: 0; }
+
+    .drive-row { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #E5E7EB; }
+
+    /* ── Spinner ──────────────────────────────────────────────────── */
+    .spin {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: rot .7s linear infinite;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Job Application Agent</h1>
+    <p>Paste a job posting to generate a tailored resume, ATS resume, and cover letter.</p>
+  </header>
+
+  <!-- ── Input form ──────────────────────────────────────────────── -->
+  <div class="card" id="formCard">
+    <form id="runForm">
+      <div class="field">
+        <label for="job_posting">Job Posting</label>
+        <textarea id="job_posting" name="job_posting" rows="10"
+          placeholder="Paste the full job description here…" required></textarea>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="company">Company</label>
+          <input id="company" name="company" type="text"
+            placeholder="e.g. Acme Corp" required>
+        </div>
+        <div class="field">
+          <label for="role">Role Title</label>
+          <input id="role" name="role" type="text"
+            placeholder="e.g. Solutions Engineer" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="contact">Hiring Manager <span class="opt">(optional)</span></label>
+        <input id="contact" name="contact" type="text"
+          placeholder="Name if known — defaults to 'Hiring Team'">
+      </div>
+      <div style="display:flex;gap:.75rem;align-items:center;margin-top:.25rem">
+        <button class="btn" type="submit" id="submitBtn">Generate</button>
+        <span id="queueNote" class="hidden"
+          style="font-size:.8rem;color:var(--muted)">
+          Another run is in progress — yours will start automatically.
+        </span>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Progress ───────────────────────────────────────────────── -->
+  <div class="card hidden" id="progressCard">
+    <div class="progress-header">
+      <h2>Progress</h2>
+      <span class="badge badge-running" id="statusBadge">Running</span>
+    </div>
+    <div class="log" id="logEl"></div>
+    <div class="inline-err" id="inlineErr"></div>
+  </div>
+
+  <!-- ── Results ────────────────────────────────────────────────── -->
+  <div class="card hidden" id="resultsCard">
+    <p class="results-h">&#10003; Done</p>
+    <div class="framing hidden" id="framingEl"></div>
+    <div class="files" id="fileLinks"></div>
+    <div class="drive-row hidden" id="driveRow">
+      <a class="file-row" id="driveAnchor" target="_blank" rel="noopener">
+        <span>
+          <div class="file-label">Google Drive Folder</div>
+        </span>
+        <span class="file-arrow">&#x2197;</span>
+      </a>
+    </div>
+    <div style="margin-top:1rem">
+      <button class="btn btn-ghost" id="newRunBtn">New Application</button>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  const form       = document.getElementById('runForm');
+  const submitBtn  = document.getElementById('submitBtn');
+  const logEl      = document.getElementById('logEl');
+  const badge      = document.getElementById('statusBadge');
+  const inlineErr  = document.getElementById('inlineErr');
+
+  const show = (id) => document.getElementById(id).classList.remove('hidden');
+  const hide = (id) => document.getElementById(id).classList.add('hidden');
+
+  function appendLog(msg) {
+    logEl.textContent += msg + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setBadge(status) {
+    badge.className = `badge badge-${status}`;
+    badge.textContent = { running: 'Running…', queued: 'Queued', done: 'Done', error: 'Error' }[status] ?? status;
+  }
+
+  // ── Form submit ──────────────────────────────────────────────────
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const raw = Object.fromEntries(new FormData(e.target));
+    const body = { job_posting: raw.job_posting, company: raw.company, role: raw.role };
+    if (raw.contact.trim()) body.contact = raw.contact.trim();
+
+    // Reset
+    logEl.textContent = '';
+    inlineErr.style.display = 'none';
+    hide('resultsCard');
+    show('progressCard');
+    hide('queueNote');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spin"></span> Generating…';
+    setBadge('running');
+
+    // Start run
+    let run_id;
+    try {
+      const res = await fetch('/api/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      ({ run_id } = await res.json());
+    } catch (err) {
+      appendLog('❌ Failed to start: ' + err.message);
+      setBadge('error');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Generate';
+      return;
+    }
+
+    // Show queue note if another run is in progress
+    const st = await fetch(`/api/run/${run_id}/status`).then(r => r.json());
+    if (st.status === 'queued') {
+      setBadge('queued');
+      show('queueNote');
+    }
+
+    // Stream SSE progress
+    const es = new EventSource(`/api/run/${run_id}/stream`);
+
+    es.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+
+      if (msg.type === 'progress') {
+        if (badge.className.includes('queued')) { setBadge('running'); hide('queueNote'); }
+        appendLog(msg.message);
+
+      } else if (msg.type === 'done') {
+        es.close();
+        setBadge('done');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Generate';
+        showResults(run_id, msg);
+
+      } else if (msg.type === 'error') {
+        es.close();
+        setBadge('error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Generate';
+        inlineErr.textContent = '❌ ' + msg.message;
+        inlineErr.style.display = 'block';
+      }
+    };
+
+    es.onerror = () => {
+      if (badge.className.includes('done') || badge.className.includes('error')) return;
+      es.close();
+      setBadge('error');
+      appendLog('\n⚠ Connection lost. Your run may still be processing.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Generate';
+    };
+  });
+
+  // ── Show results ─────────────────────────────────────────────────
+  function showResults(run_id, msg) {
+    show('resultsCard');
+
+    if (msg.framing_angle) {
+      document.getElementById('framingEl').textContent = msg.framing_angle;
+      show('framingEl');
+    }
+
+    const container = document.getElementById('fileLinks');
+    container.innerHTML = '';
+    const labels = {
+      resume:       ['Resume (Styled DOCX)', '&#x2193;'],
+      ats:          ['ATS Resume (DOCX)',    '&#x2193;'],
+      cover_letter: ['Cover Letter (DOCX)',  '&#x2193;'],
+    };
+    for (const [key, [label, icon]] of Object.entries(labels)) {
+      const name = msg.files?.[key];
+      if (!name) continue;
+      const a = document.createElement('a');
+      a.className = 'file-row';
+      a.href = `/api/run/${run_id}/files/${encodeURIComponent(name)}`;
+      a.download = name;
+      a.innerHTML = `
+        <span>
+          <div class="file-label">${label}</div>
+          <div class="file-name">${name}</div>
+        </span>
+        <span class="file-arrow">${icon}</span>`;
+      container.appendChild(a);
+    }
+
+    if (msg.folder_url) {
+      document.getElementById('driveAnchor').href = msg.folder_url;
+      show('driveRow');
+    }
+  }
+
+  // ── New run ───────────────────────────────────────────────────────
+  document.getElementById('newRunBtn').addEventListener('click', () => {
+    hide('resultsCard');
+    hide('progressCard');
+    hide('queueNote');
+    form.reset();
+    logEl.textContent = '';
+  });
+</script>
+</body>
+</html>
