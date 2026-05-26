@@ -590,13 +590,22 @@ Return ONLY valid JSON array.
         old = op.get("old", "")
         new = op.get("new", "")
         total_attempted += 1
+        safe_new = _xml_escape(new)
 
         if old in xml:
-            xml = xml.replace(old, _xml_escape(new), 1)
+            # Exact match (Claude already used &amp; in the old value)
+            xml = xml.replace(old, safe_new, 1)
             total_success += 1
             config.progress(f"  ✓ Replaced: {old[:60]}...")
         else:
-            config.progress(f"  ✗ NOT FOUND: {old[:60]}...")
+            # Claude read plain text (bare &) but the XML has &amp; — try normalised form
+            xml_old = _xml_escape(old)
+            if xml_old != old and xml_old in xml:
+                xml = xml.replace(xml_old, safe_new, 1)
+                total_success += 1
+                config.progress(f"  ✓ Replaced (normalised): {old[:60]}...")
+            else:
+                config.progress(f"  ✗ NOT FOUND: {old[:60]}...")
 
     if colors:
         xml = apply_brand_colors(xml, colors)
