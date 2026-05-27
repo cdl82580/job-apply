@@ -27,8 +27,8 @@ DEFAULT_PALETTE = {
     "fill":    "EEF4FB",
 }
 
-# Brandfetch search client token (autocomplete endpoint). Override via env if needed.
-_SEARCH_CLIENT = os.environ.get("BRANDFETCH_SEARCH_CLIENT", "1idZFX8Ll28d4x2IVye")
+# Brandfetch search client token (autocomplete endpoint). Set BRANDFETCH_SEARCH_CLIENT in env.
+_SEARCH_CLIENT = os.environ.get("BRANDFETCH_SEARCH_CLIENT", "")
 
 
 def _load_api_key() -> str:

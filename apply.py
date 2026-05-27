@@ -967,7 +967,7 @@ def step6_cover_letter(
 # Step 8: Google Drive upload
 # ---------------------------------------------------------------------------
 
-GDRIVE_PARENT_FOLDER_ID = "1JneTCux_wjhhU_TIPWZifO7UtCPb7Ppy"
+GDRIVE_PARENT_FOLDER_ID = os.environ.get("GDRIVE_PARENT_FOLDER_ID", "")
 GDRIVE_TOKEN_PATH       = Path.home() / ".config" / "job-apply" / "gdrive_token.json"
 GDRIVE_CREDS_PATH       = Path(__file__).parent / "gdrive_credentials.json"
 _MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

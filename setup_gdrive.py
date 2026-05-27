@@ -9,13 +9,14 @@ Usage:
     python3 setup_gdrive.py
 """
 
+import os
 import sys
 from pathlib import Path
 
 CREDS_PATH = Path(__file__).parent / "gdrive_credentials.json"
 TOKEN_PATH  = Path.home() / ".config" / "job-apply" / "gdrive_token.json"
 SCOPES      = ["https://www.googleapis.com/auth/drive.file"]
-PARENT_ID   = "1JneTCux_wjhhU_TIPWZifO7UtCPb7Ppy"
+PARENT_ID   = os.environ.get("GDRIVE_PARENT_FOLDER_ID", "")
 
 SETUP_INSTRUCTIONS = """
 gdrive_credentials.json not found.
