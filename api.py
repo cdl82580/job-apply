@@ -422,7 +422,8 @@ async def create_run(req: RunRequest, request: Request, response: Response):
 
     run_id = str(uuid.uuid4())
     q: Queue[dict | None] = Queue()
-    _runs[run_id] = {"queue": q, "status": "queued", "result": None, "error": None}
+    _runs[run_id] = {"queue": q, "status": "queued", "result": None, "error": None,
+                     "user_id": user_id}
 
     # Pin this browser session to the machine that owns this run's state
     if FLY_MACHINE_ID:
@@ -447,6 +448,8 @@ async def create_run(req: RunRequest, request: Request, response: Response):
                     progress=progress,
                     master_resume=resume_path,
                     profile_text=profile_text,
+                    user_id=user_id,
+                    user_label=user_data["email"],
                 )
                 try:
                     result: WorkflowResult = run_workflow(
@@ -525,10 +528,12 @@ async def run_status(run_id: str, request: Request):
 
 @app.get("/api/run/{run_id}/files/{filename}")
 async def get_file(run_id: str, filename: str, request: Request):
-    _require_user(request)
+    user_data = _require_user(request)
     run = _runs.get(run_id)
     if not run or run["status"] != "done" or not run.get("result"):
         raise HTTPException(404, "Run not complete")
+    if run.get("user_id") != user_data["user_id"]:
+        raise HTTPException(403, "Access denied")
 
     result: WorkflowResult = run["result"]
     file_path = (result.run_dir / filename).resolve()
@@ -553,10 +558,11 @@ async def get_file(run_id: str, filename: str, request: Request):
 
 @app.get("/api/runs")
 async def list_runs(request: Request):
-    _require_user(request)
+    user_data = _require_user(request)
+    user_dir  = OUTPUT_DIR / safe_filename(user_data["user_id"])
     runs = []
-    if OUTPUT_DIR.exists():
-        dirs = sorted(OUTPUT_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+    if user_dir.exists():
+        dirs = sorted(user_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
         for d in dirs:
             if d.is_dir():
                 runs.append({
@@ -568,10 +574,11 @@ async def list_runs(request: Request):
 
 @app.get("/api/runs/{folder}/job_posting")
 async def get_run_job_posting(folder: str, request: Request):
-    _require_user(request)
+    user_data = _require_user(request)
+    user_dir  = OUTPUT_DIR / safe_filename(user_data["user_id"])
     try:
-        path = (OUTPUT_DIR / folder / "job_posting.txt").resolve()
-        path.relative_to(OUTPUT_DIR.resolve())
+        path = (user_dir / folder / "job_posting.txt").resolve()
+        path.relative_to(user_dir.resolve())
     except ValueError:
         raise HTTPException(400, "Invalid folder")
     if not path.exists():
@@ -601,7 +608,8 @@ async def create_prep(req: PrepRequest, request: Request, response: Response):
 
     prep_id = str(uuid.uuid4())
     q: Queue[dict | None] = Queue()
-    _preps[prep_id] = {"queue": q, "status": "queued", "result": None, "error": None}
+    _preps[prep_id] = {"queue": q, "status": "queued", "result": None, "error": None,
+                       "user_id": user_id}
 
     if FLY_MACHINE_ID:
         response.set_cookie("fly-force-instance-id", FLY_MACHINE_ID, path="/", samesite="lax")
@@ -625,6 +633,8 @@ async def create_prep(req: PrepRequest, request: Request, response: Response):
                 progress=progress,
                 master_resume=resume_path,
                 profile_text=profile_text,
+                user_id=user_id,
+                user_label=user_data["email"],
             )
             try:
                 result: InterviewPrepResult = generate_interview_prep(
@@ -699,10 +709,12 @@ async def prep_status(prep_id: str, request: Request):
 
 @app.get("/api/prep/{prep_id}/files/{filename}")
 async def get_prep_file(prep_id: str, filename: str, request: Request):
-    _require_user(request)
+    user_data = _require_user(request)
     prep = _preps.get(prep_id)
     if not prep or prep["status"] != "done" or not prep.get("result"):
         raise HTTPException(404, "Prep not complete")
+    if prep.get("user_id") != user_data["user_id"]:
+        raise HTTPException(403, "Access denied")
 
     result: InterviewPrepResult = prep["result"]
     file_path = (result.run_dir / filename).resolve()

@@ -101,6 +101,10 @@ class WorkflowConfig:
     # CLI single-user runs leave these as None and fall back to module constants.
     master_resume: Path | None            = None
     profile_text:  str | None             = None
+    # User identity — used to scope output dirs and Drive folders.
+    # CLI runs leave these None (outputs go to output/ directly).
+    user_id:       str | None             = None   # UUID, used for local path
+    user_label:    str | None             = None   # email, used for Drive folder name
 
 
 @dataclass
@@ -123,6 +127,8 @@ class InterviewPrepConfig:
     progress:      Callable[[str], None]  = field(default=print)
     profile_text:  str | None             = None
     master_resume: Path | None            = None
+    user_id:       str | None             = None
+    user_label:    str | None             = None
 
 
 @dataclass
@@ -1025,13 +1031,41 @@ def _gdrive_service(config: WorkflowConfig):
     return build("drive", "v3", credentials=creds)
 
 
+def _gdrive_get_or_create_folder(service, name: str, parent_id: str) -> tuple[str, str]:
+    """Return (folder_id, webViewLink) for a named subfolder, creating it if absent."""
+    existing = service.files().list(
+        q=(
+            f"name='{name}' and '{parent_id}' in parents and "
+            "mimeType='application/vnd.google-apps.folder' and trashed=false"
+        ),
+        fields="files(id, webViewLink)",
+        pageSize=1,
+    ).execute().get("files", [])
+
+    if existing:
+        return existing[0]["id"], existing[0]["webViewLink"]
+
+    created = service.files().create(
+        body={"name": name, "mimeType": "application/vnd.google-apps.folder",
+              "parents": [parent_id]},
+        fields="id, webViewLink",
+    ).execute()
+    return created["id"], created["webViewLink"]
+
+
 def step8_upload(
     run_dir: Path,
     company_safe: str,
     role_safe: str,
     config: WorkflowConfig,
 ) -> str | None:
-    """Upload output files to Google Drive. Returns the folder URL or None."""
+    """Upload output files to Google Drive. Returns the run folder URL or None.
+
+    Drive structure:
+      Job Applications/
+        {user_label}/          ← created when config.user_label is set
+          {Company}_{Role}/
+    """
     try:
         from googleapiclient.http import MediaFileUpload
     except ImportError:
@@ -1040,44 +1074,26 @@ def step8_upload(
 
     print_step(8, "Uploading to Google Drive", config)
 
-    # Drive upload is best-effort — a failure here must never crash the workflow
-    # or silently drop the SSE connection.
     try:
         service = _gdrive_service(config)
         if service is None:
             return None
 
-        config.progress(f"  ✓ Using Drive folder: Job Applications ({GDRIVE_PARENT_FOLDER_ID})")
+        # Resolve the parent folder (user subfolder, or root if CLI/no user)
+        if config.user_label:
+            user_folder_id, _ = _gdrive_get_or_create_folder(
+                service, config.user_label, GDRIVE_PARENT_FOLDER_ID
+            )
+            config.progress(f"  ✓ Drive user folder: {config.user_label}")
+            run_parent_id = user_folder_id
+        else:
+            run_parent_id = GDRIVE_PARENT_FOLDER_ID
 
         run_folder_name = f"{company_safe}_{role_safe}"
-
-        # Reuse an existing subfolder rather than creating duplicates on re-runs
-        existing = service.files().list(
-            q=(
-                f"name='{run_folder_name}' and "
-                f"'{GDRIVE_PARENT_FOLDER_ID}' in parents and "
-                "mimeType='application/vnd.google-apps.folder' and trashed=false"
-            ),
-            fields="files(id, webViewLink)",
-            pageSize=1,
-        ).execute().get("files", [])
-
-        if existing:
-            run_folder_id = existing[0]["id"]
-            folder_url    = existing[0]["webViewLink"]
-            config.progress(f"  ✓ Using existing subfolder: {run_folder_name}")
-        else:
-            rf = service.files().create(
-                body={
-                    "name": run_folder_name,
-                    "mimeType": "application/vnd.google-apps.folder",
-                    "parents": [GDRIVE_PARENT_FOLDER_ID],
-                },
-                fields="id, webViewLink",
-            ).execute()
-            run_folder_id = rf["id"]
-            folder_url    = rf["webViewLink"]
-            config.progress(f"  ✓ Created subfolder: {run_folder_name}")
+        run_folder_id, folder_url = _gdrive_get_or_create_folder(
+            service, run_folder_name, run_parent_id
+        )
+        config.progress(f"  ✓ Drive run folder: {run_folder_name}")
 
         for f in sorted(run_dir.iterdir()):
             if f.name.startswith("~$") or f.suffix not in (".docx", ".pdf"):
@@ -1107,11 +1123,7 @@ def _upload_single_to_drive(
     folder_name: str,
     config: WorkflowConfig,
 ) -> str | None:
-    """Upload *one* file to the Job Applications Drive folder.
-
-    Finds or creates the named subfolder, then uploads the file.
-    Returns the folder's webViewLink, or None on any failure/skip.
-    """
+    """Upload one file into the correct user → run subfolder in Drive."""
     try:
         from googleapiclient.http import MediaFileUpload
     except ImportError:
@@ -1123,32 +1135,18 @@ def _upload_single_to_drive(
         if service is None:
             return None
 
-        existing = service.files().list(
-            q=(
-                f"name='{folder_name}' and "
-                f"'{GDRIVE_PARENT_FOLDER_ID}' in parents and "
-                "mimeType='application/vnd.google-apps.folder' and trashed=false"
-            ),
-            fields="files(id, webViewLink)",
-            pageSize=1,
-        ).execute().get("files", [])
-
-        if existing:
-            folder_id  = existing[0]["id"]
-            folder_url = existing[0]["webViewLink"]
-            config.progress(f"  ✓ Using existing Drive subfolder: {folder_name}")
+        if config.user_label:
+            user_folder_id, _ = _gdrive_get_or_create_folder(
+                service, config.user_label, GDRIVE_PARENT_FOLDER_ID
+            )
+            run_parent_id = user_folder_id
         else:
-            rf = service.files().create(
-                body={
-                    "name":     folder_name,
-                    "mimeType": "application/vnd.google-apps.folder",
-                    "parents":  [GDRIVE_PARENT_FOLDER_ID],
-                },
-                fields="id, webViewLink",
-            ).execute()
-            folder_id  = rf["id"]
-            folder_url = rf["webViewLink"]
-            config.progress(f"  ✓ Created Drive subfolder: {folder_name}")
+            run_parent_id = GDRIVE_PARENT_FOLDER_ID
+
+        folder_id, folder_url = _gdrive_get_or_create_folder(
+            service, folder_name, run_parent_id
+        )
+        config.progress(f"  ✓ Drive folder: {folder_name}")
 
         media = MediaFileUpload(str(file_path), mimetype=_MIME_DOCX, resumable=False)
         service.files().create(
@@ -1199,8 +1197,12 @@ def run_workflow(
 
     company_safe = safe_filename(company)
     role_safe    = safe_filename(role)
-    run_dir      = OUTPUT_DIR / f"{company_safe}_{role_safe}"
-    run_dir.mkdir(exist_ok=True)
+    # Scope to user subfolder when running via the server; CLI runs go to output/ directly.
+    if config.user_id:
+        run_dir = OUTPUT_DIR / safe_filename(config.user_id) / f"{company_safe}_{role_safe}"
+    else:
+        run_dir = OUTPUT_DIR / f"{company_safe}_{role_safe}"
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     # Persist job posting so interview prep can retrieve it later
     (run_dir / "job_posting.txt").write_text(job_posting, encoding="utf-8")
@@ -1429,14 +1431,19 @@ def generate_interview_prep(
         progress=config.progress,
         master_resume=config.master_resume,
         profile_text=config.profile_text,
+        user_id=config.user_id,
+        user_label=config.user_label,
     )
 
     OUTPUT_DIR.mkdir(exist_ok=True)
     company_safe = safe_filename(company)
     role_safe    = safe_filename(role)
     round_safe   = safe_filename(config.round_type.replace(" ", ""))
-    run_dir      = OUTPUT_DIR / f"{company_safe}_{role_safe}"
-    run_dir.mkdir(exist_ok=True)
+    if config.user_id:
+        run_dir = OUTPUT_DIR / safe_filename(config.user_id) / f"{company_safe}_{role_safe}"
+    else:
+        run_dir = OUTPUT_DIR / f"{company_safe}_{role_safe}"
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     prep_out = run_dir / (
         f"InterviewPrep_{APPLICANT_NAME}_{company_safe}_{role_safe}_{round_safe}.docx"
