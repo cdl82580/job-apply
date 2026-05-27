@@ -744,6 +744,11 @@
         submitBtn.disabled = false;
         submitBtn.textContent = 'Generate';
         showResults(run_id, msg);
+        // Refresh past runs — reset flag so next open re-fetches; reload now if open
+        _pastRunsLoaded = false;
+        if (!document.getElementById('pastRunsBody').classList.contains('hidden')) {
+          loadPastRuns();
+        }
 
       } else if (msg.type === 'error') {
         es.close();
@@ -787,7 +792,7 @@
     const fileTypes = [
       { key: 'resume',       icon: '📄', label: 'Resume',       desc: 'Styled DOCX — branded, formatted'  },
       { key: 'ats',          icon: '📋', label: 'ATS Resume',   desc: 'Plain DOCX — parser-safe'          },
-      { key: 'cover_letter', icon: '✉',  label: 'Cover Letter', desc: 'DOCX — tailored to this role'      },
+      { key: 'cover_letter', icon: '📝', label: 'Cover Letter', desc: 'DOCX — tailored to this role'      },
     ];
     for (const { key, icon, label, desc } of fileTypes) {
       const name = msg.files?.[key];
