@@ -14,7 +14,7 @@ tailored resume, ATS resume, and cover letter in under 2 minutes.
 - **Cover letter** — voice-matched DOCX tailored to the role and hiring manager
 - **Google Drive sync** — all output files uploaded automatically to your Drive folder
 - **Past Runs** — collapsible list of previous applications, refreshes in real-time after each run
-- **Interview Prep** — generates a question bank + story map for a given round and role
+- **Interview Prep** — generates a 9-section two-column reference card (role fit map, gap bridges, anchor stories, likely questions, differentiating edge, and more) tailored to the specific interviewer and round type
 - **Auth** — account-based; each user gets their own resume, profile guide, and Drive silo
 - **SSE progress streaming** — live log output while the agent runs
 
@@ -55,7 +55,7 @@ job-apply/
 3. Paste a job posting, enter company + role, hit **Generate**
 4. Watch the live log; download all three output files when done
 5. Use **Past Runs** to revisit previous applications
-6. Use **Interview Prep** to generate a question bank for an upcoming round
+6. Use **Interview Prep** to generate a reference card for an upcoming round — enter the interviewer name and round type for a fully tailored output
 
 ---
 

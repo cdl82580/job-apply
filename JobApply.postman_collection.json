@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Job Apply API",
-    "description": "Complete API reference for the Job Application Agent web app (https://job-apply-corey.fly.dev/).\n\nAuth model: stateless HMAC session cookie (`session`). The login and register endpoints set the cookie automatically; all protected requests must include it.\n\nTwo run types exist:\n- **Application run** — produces resume, ATS resume, and cover letter DOCXs\n- **Interview prep run** — produces a question bank + story map DOCX\n\nBoth run types are async: POST to start → stream SSE progress → done/error event contains file names → download files.\n\nBase URL variable: `{{base_url}}` defaults to `https://job-apply-corey.fly.dev`. Override with `http://localhost:8000` for local dev.",
+    "description": "Complete API reference for the Job Application Agent web app (https://job-apply-corey.fly.dev/).\n\nAuth model: stateless HMAC session cookie (`session`). The login and register endpoints set the cookie automatically; all protected requests must include it.\n\nTwo run types exist:\n- **Application run** — produces resume, ATS resume, and cover letter DOCXs\n- **Interview prep run** — produces a two-column 9-section reference card DOCX (role fit map, gap bridges, anchor stories, likely questions, differentiating edge, closing line, and more)\n\nBoth run types are async: POST to start → stream SSE progress → done/error event contains file names → download files.\n\nBase URL variable: `{{base_url}}` defaults to `https://job-apply-corey.fly.dev`. Override with `http://localhost:8000` for local dev.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -345,20 +345,20 @@
     },
     {
       "name": "Interview Prep Runs",
-      "description": "Start and monitor an interview prep generation run.\n\n**Lifecycle:** identical to Application Runs but uses `/api/prep/*` paths. The `done` event returns `files.prep` (a single DOCX filename).\n\n`round_type` must be one of: `Phone Screen`, `Hiring Manager`, `Peer`, `Technical`, `Executive`, `Panel`.",
+      "description": "Start and monitor an interview prep generation run.\n\n**Lifecycle:** identical to Application Runs but uses `/api/prep/*` paths. The `done` event returns `files.prep` (a single DOCX filename).\n\nThe output is a two-column reference card with 9 sections: Know Your Interviewer, Role Fit Map, Gap Bridge, Development Framework, Anchor Stories, Likely Questions, Questions to Ask, Differentiating Edge, and Closing Line. Pass `interviewer` to calibrate sections 1, 6, and 7 to the specific person.\n\n`round_type` must be one of: `Phone Screen`, `Hiring Manager`, `Peer`, `Technical`, `Executive`, `Panel`.",
       "item": [
         {
           "name": "POST /api/prep",
           "request": {
             "method": "POST",
             "url": "{{base_url}}/api/prep",
-            "description": "Start an interview prep run for a given job, company, role, and round type. Optionally pass a `focus` string to steer the angle (e.g. \"lean into the agentic AI angle\").\n\nReturns a `prep_id` UUID. Follow with the SSE stream endpoint.",
+            "description": "Start an interview prep run for a given job, company, role, and round type.\n\nOptional fields:\n- `interviewer` — name and title of the interviewer (e.g. `\"Dan Spencer — Recruiter\"`). Used to calibrate sections 1 (Know Your Interviewer), 6 (Likely Questions), and 7 (Questions to Ask).\n- `focus` — a free-text steer on angle (e.g. `\"lean into the agentic AI angle, they mentioned MCP\"`).\n\nReturns a `prep_id` UUID. Follow with the SSE stream endpoint.",
             "header": [
               { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"job_posting\": \"Paste the full job description here…\",\n  \"company\": \"Acme Corp\",\n  \"role\": \"Solutions Engineer\",\n  \"round_type\": \"Hiring Manager\",\n  \"focus\": \"Lean into the agentic AI angle, they mentioned MCP\"\n}"
+              "raw": "{\n  \"job_posting\": \"Paste the full job description here…\",\n  \"company\": \"Acme Corp\",\n  \"role\": \"Solutions Engineer\",\n  \"round_type\": \"Hiring Manager\",\n  \"interviewer\": \"Jane Smith — Engineering Manager\",\n  \"focus\": \"Lean into the agentic AI angle, they mentioned MCP\"\n}"
             }
           },
           "response": [
