@@ -229,6 +229,7 @@ class PrepRequest(BaseModel):
     role: str
     round_type: str
     focus: str | None = None
+    interviewer: str | None = None
     model: str | None = None
 
 # ---------------------------------------------------------------------------
@@ -659,6 +660,7 @@ async def create_prep(req: PrepRequest, request: Request, response: Response):
             config = InterviewPrepConfig(
                 round_type=req.round_type,
                 focus=req.focus or "",
+                interviewer=req.interviewer or "",
                 model=req.model or DEFAULT_MODEL,
                 progress=progress,
                 master_resume=resume_path,
