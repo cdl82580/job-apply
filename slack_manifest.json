@@ -1,0 +1,63 @@
+{
+  "_metadata": {
+    "major_version": 1,
+    "minor_version": 1
+  },
+  "display_information": {
+    "name": "Job Apply",
+    "description": "Generate tailored resumes, ATS resumes, cover letters, and interview prep cards — all from Slack.",
+    "background_color": "#1A3C5E",
+    "long_description": "Job Apply bot lets you kick off a full application workflow or generate an interview prep card without leaving Slack.\n\nCommands:\n  /apply     — paste a job posting, enter company + role, get resume + ATS resume + cover letter\n  /prep      — paste a job posting, pick a round type, get a tailored interview prep card\n  /jobstatus — check that the backend API is healthy\n\nAll output files are uploaded to your Google Drive automatically."
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Job Apply",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/apply",
+        "description": "Generate a tailored resume + cover letter for a job posting",
+        "usage_hint": "(opens a form)",
+        "should_escape": false
+      },
+      {
+        "command": "/prep",
+        "description": "Generate an interview prep card for an upcoming round",
+        "usage_hint": "(opens a form)",
+        "should_escape": false
+      },
+      {
+        "command": "/jobstatus",
+        "description": "Check the status of the Job Apply API backend",
+        "usage_hint": "(no arguments needed)",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "commands",
+        "chat:write",
+        "im:write",
+        "im:history"
+      ]
+    }
+  },
+  "settings": {
+    "socket_mode_enabled": false,
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://YOUR_BOT_HOST/slack/events"
+    },
+    "event_subscriptions": {
+      "request_url": "https://YOUR_BOT_HOST/slack/events",
+      "bot_events": [
+        "message.im"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
