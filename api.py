@@ -77,6 +77,9 @@ FLY_APP_NAME   = os.environ.get("FLY_APP_NAME", "job-apply-corey")
 _SESSION_SECRET  = os.environ.get("SESSION_SECRET", secrets.token_hex(32))
 _SESSION_COOKIE  = "session"
 _SESSION_DAYS    = 30
+# Bearer token for the Slack bot — set BOT_API_KEY as a Fly.io secret.
+# Requests carrying this token skip cookie auth and run as the primary user account.
+_BOT_API_KEY     = os.environ.get("BOT_API_KEY", "")
 
 _NOTIFY_EMAIL = os.environ.get("APP_USER_EMAIL", "cdl825@gmail.com")
 
@@ -110,7 +113,25 @@ def _verify_session(token: str) -> dict | None:
         return None
 
 
+def _bot_user(request: Request) -> dict | None:
+    """Return a synthetic user dict if the request carries a valid bot API key."""
+    if not _BOT_API_KEY:
+        return None
+    auth = request.headers.get("Authorization", "")
+    if not (auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], _BOT_API_KEY)):
+        return None
+    # Resolve the primary user account so the bot runs as a real user with
+    # a real resume and profile stored in Tigris.
+    primary = storage.get_user_by_email(_NOTIFY_EMAIL)
+    if not primary:
+        return None
+    return {"user_id": primary["user_id"], "email": primary["email"]}
+
+
 def _current_user(request: Request) -> dict | None:
+    bot = _bot_user(request)
+    if bot:
+        return bot
     token = request.cookies.get(_SESSION_COOKIE, "")
     return _verify_session(token)
 
