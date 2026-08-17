@@ -60,13 +60,6 @@ except ImportError as _e:
 # Constants
 # ---------------------------------------------------------------------------
 
-APPLICANT_NAME = "CoreyLaverdiere"
-
-# Single source of truth for contact info — used by cover letter and ATS resume
-APPLICANT_CONTACT_LINE = (
-    "978-790-4272  |  cdl825@gmail.com  |  Sterling, MA  |  linkedin.com/in/coreydlaverdiere"
-    "  |  github.com/cdl82580"
-)
 MASTER_RESUME = Path("resumes/master.docx")
 PROFILE_FILE  = Path("profile.md")
 UNPACK_DIR    = Path("unpacked")
@@ -469,7 +462,7 @@ Produce a JSON object with exactly these keys:
   "ehealth_title_subtitle": "string - the subtitle bar text for eHealth (e.g. 'AI Solutions & Integration Engineer  |  Subtitle  |  Tray.ai Platform Owner')",
   "ehealth_bullets": ["6 strings - complete bullet text for each of the 6 eHealth bullets"],
   "hsp_bullets": ["4 strings - complete bullet text for each of the 4 HSP Group bullets"],
-  "summary": "string - full professional summary text (4-5 sentences, written in Corey's voice per profile.md)",
+  "summary": "string - full professional summary text (4-5 sentences, written in the candidate's own voice per the profile guide)",
   "cover_letter_hook": "string - the opening angle for the cover letter P1 (what JD language to echo, what story to lead with)",
   "cover_letter_p1": "string - full text of P1 (max 3 sentences)",
   "cover_letter_p2": "string - full text of P2, primary evidence, most quantified (max 4 sentences)",
@@ -866,6 +859,45 @@ def step5b_ats_resume(
 
     config.progress(f"  ✓ ATS resume written to {output_path}")
 
+
+def _identity_from_resume(resume_path: Path, config: WorkflowConfig) -> tuple[str, str]:
+    """Extract (name, contact_line) verbatim from a resume's own header.
+
+    Every generated document that needs to show the applicant's identity
+    (cover letter, interview prep) reads it from here — always the actual
+    candidate's own resume, never a hardcoded default — so a document never
+    ends up signed with a different person's name and contact info.
+    """
+    try:
+        data = _parse_styled_resume(resume_path)
+    except Exception as exc:
+        raise WorkflowError(f"Could not read the applicant's resume header: {exc}")
+    name = data.get("name", "")
+    if not name:
+        raise WorkflowError(
+            "Could not find the candidate's name in the resume header — "
+            "refusing to generate a document with a missing/placeholder identity."
+        )
+    config.progress(f"  ✓ Applicant identity read from resume: {name}")
+    return name, data.get("contact_line", "")
+
+
+def _applicant_name_for_filenames(resume_path: Path | str | None) -> str:
+    """Best-effort filename-safe applicant name, read from their own resume.
+
+    Used only for output filenames — never for document content, which goes
+    through the strict _identity_from_resume() instead. A parse miss here
+    falls back to a generic "Applicant" label (never another user's real
+    name) rather than blocking file generation.
+    """
+    try:
+        name = _parse_styled_resume(Path(resume_path) if resume_path else MASTER_RESUME).get("name", "")
+        if name:
+            return safe_filename(name) or "Applicant"
+    except Exception:
+        pass
+    return "Applicant"
+
 # ---------------------------------------------------------------------------
 # Step 6: Cover letter
 # ---------------------------------------------------------------------------
@@ -889,7 +921,7 @@ const doc = new Document({{
     children: [
       new Paragraph({{
         spacing: {{ after: 0 }},
-        children: [new TextRun({{ text: "COREY LAVERDIERE", font: "Calibri", size: 40, bold: true, color: "{primary_color}" }})]
+        children: [new TextRun({{ text: "{applicant_name_upper}", font: "Calibri", size: 40, bold: true, color: "{primary_color}" }})]
       }}),
       new Paragraph({{
         border: {{ bottom: {{ style: BorderStyle.SINGLE, size: 6, color: "{border_color}", space: 4 }} }},
@@ -926,7 +958,7 @@ const doc = new Document({{
       }}),
       new Paragraph({{
         spacing: {{ after: 40 }},
-        children: [new TextRun({{ text: "Corey Laverdiere", font: "Calibri", size: 22, bold: true, color: "{primary_color}" }})]
+        children: [new TextRun({{ text: "{applicant_name}", font: "Calibri", size: 22, bold: true, color: "{primary_color}" }})]
       }}),
       new Paragraph({{
         spacing: {{ after: 0 }},
@@ -949,9 +981,23 @@ def step6_cover_letter(
     role: str,
     output_path: Path,
     config: WorkflowConfig,
+    applicant_name: str,
+    applicant_contact_line: str,
     colors: dict | None = None,
 ):
+    """Generate the cover letter DOCX.
+
+    applicant_name / applicant_contact_line must come from the actual user's
+    own resume (see _identity_from_resume) — never a hardcoded default —
+    so this document is never signed with someone else's name.
+    """
     print_step(6, "Generating Cover Letter", config)
+
+    if not applicant_name:
+        raise WorkflowError(
+            "Could not determine the applicant's name from their resume — "
+            "refusing to generate a cover letter with a missing identity."
+        )
 
     palette      = colors or {"primary": "1A3C5E", "border": "2B6CB0"}
     today        = date.today().strftime("%B %-d, %Y")
@@ -973,10 +1019,10 @@ def step6_cover_letter(
             f'      }}),'
         )
 
-    # Sign-off uses only phone | email (not full contact line)
-    sign_off_contact = escape_js_string(
-        "  |  ".join(APPLICANT_CONTACT_LINE.split("  |  ")[:2])
-    )
+    # Sign-off uses only phone | email (not full contact line) when both are
+    # present; falls back to whatever the contact line actually has otherwise.
+    contact_fields    = [f.strip() for f in applicant_contact_line.split("  |  ") if f.strip()]
+    sign_off_contact  = escape_js_string("  |  ".join(contact_fields[:2]) or applicant_contact_line)
 
     js = COVER_LETTER_JS_TEMPLATE.format(
         today=today,
@@ -988,7 +1034,9 @@ def step6_cover_letter(
         output_path=str(output_path).replace("\\", "/"),
         primary_color=escape_js_string(palette["primary"]),
         border_color=escape_js_string(palette["border"]),
-        contact_line=escape_js_string(APPLICANT_CONTACT_LINE),
+        applicant_name=escape_js_string(applicant_name),
+        applicant_name_upper=escape_js_string(applicant_name.upper()),
+        contact_line=escape_js_string(applicant_contact_line),
         sign_off_contact=sign_off_contact,
     )
 
@@ -1303,10 +1351,15 @@ def step8_upload(
             _gdrive_upsert_file(service, run_folder_id, f.name, f, mime=mime)
             config.progress(f"  ✓ Uploaded {f.name}")
 
-        # Convert the styled (non-ATS) resume to PDF via Drive
-        styled_resume = run_dir / f"Resume_{APPLICANT_NAME}_{company_safe}_{role_safe}.docx"
-        if styled_resume.exists():
-            pdf_name = f"Resume_{APPLICANT_NAME}_{company_safe}_{role_safe}.pdf"
+        # Convert the styled (non-ATS) resume to PDF via Drive. Looked up by
+        # glob rather than reconstructed from a filename pattern — the actual
+        # name uses whatever run_workflow() read from this user's own resume.
+        styled_resume = next(
+            (f for f in run_dir.glob("Resume_*.docx") if not f.name.endswith("_ATS.docx")),
+            None,
+        )
+        if styled_resume:
+            pdf_name = styled_resume.stem + ".pdf"
             _gdrive_delete_by_name(service, run_folder_id, pdf_name)
             _convert_docx_to_pdf_via_drive(
                 service,
@@ -1913,9 +1966,10 @@ def run_workflow(
         run_dir = OUTPUT_DIR / f"{company_safe}_{role_safe}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    resume_out = run_dir / f"Resume_{APPLICANT_NAME}_{company_safe}_{role_safe}.docx"
-    ats_out    = run_dir / f"Resume_{APPLICANT_NAME}_{company_safe}_{role_safe}_ATS.docx"
-    cover_out  = run_dir / f"CoverLetter_{APPLICANT_NAME}_{company_safe}_{role_safe}.docx"
+    applicant_name_safe = _applicant_name_for_filenames(config.master_resume)
+    resume_out = run_dir / f"Resume_{applicant_name_safe}_{company_safe}_{role_safe}.docx"
+    ats_out    = run_dir / f"Resume_{applicant_name_safe}_{company_safe}_{role_safe}_ATS.docx"
+    cover_out  = run_dir / f"CoverLetter_{applicant_name_safe}_{company_safe}_{role_safe}.docx"
 
     config.progress(f"\n\U0001f680 Job Application Agent")
     config.progress(f"   Company : {company}")
@@ -1955,7 +2009,12 @@ def run_workflow(
     step5b_ats_resume(resume_out, ats_out, config)
 
     # Step 6: cover letter
-    step6_cover_letter(analysis, company, role, cover_out, config, colors=colors)
+    applicant_name, applicant_contact_line = _identity_from_resume(resume_out, config)
+    step6_cover_letter(
+        analysis, company, role, cover_out, config,
+        applicant_name=applicant_name, applicant_contact_line=applicant_contact_line,
+        colors=colors,
+    )
 
     # Step 7: cleanup
     step7_cleanup(config)
@@ -1982,24 +2041,25 @@ def run_workflow(
 # ---------------------------------------------------------------------------
 
 PREP_SYSTEM = """\
-You are an expert interview coach preparing Corey Laverdiere for a specific interview.
-You know his background deeply: integration engineering, AI/ML solutions delivery,
-professional services, and customer-facing technical roles.
+You are an expert interview coach preparing a candidate for a specific interview.
+You'll be given their resume and a profile/voice guide — use those, and only those,
+to learn their background deeply.
 
 Your job is to produce a concise, 2-page interview prep document — a working
-reference Corey will skim right before the call, not a comprehensive report.
+reference the candidate will skim right before the call, not a comprehensive report.
 Be ruthlessly specific: name tools, quote numbers, reference real projects by name.
 Never merge two distinct projects or accomplishments into one bullet or one story,
 even if they're thematically similar — attribute every fact to the specific
 project it actually came from.
 
-All content must be in Corey's voice: direct, first-person, no corporate filler.
-Every prepared answer must be specific enough that it couldn't apply to any other
-candidate. If something about the company or role is uncertain, state that plainly
-rather than inventing detail.
+All content must be in the candidate's own voice, as established by their profile
+guide: direct, first-person, no corporate filler. Every prepared answer must be
+specific enough that it couldn't apply to any other candidate. If something about
+the company or role is uncertain, state that plainly rather than inventing detail.
 
-NATURAL FLOW: Make every answer sound like something Corey would actually say out
-loud, not a script. Vary sentence length and avoid repetitive sentence patterns.
+NATURAL FLOW: Make every answer sound like something the candidate would actually
+say out loud, not a script. Vary sentence length and avoid repetitive sentence
+patterns.
 
 Return ONLY valid JSON. No preamble, no markdown fences.
 """
@@ -2012,6 +2072,7 @@ def _build_prep_docx_js(
     interviewer: str,
     output_path: Path,
     colors: dict,
+    candidate_name: str = "",
     interview_date: str = "",
     interview_time: str = "",
     location: str = "",
@@ -2132,7 +2193,8 @@ def _build_prep_docx_js(
 
     paras.append(para(tr(f"{company} — {role}", bold=True, size=30, color=NAVY),
                        before=0, after=40))
-    paras.append(para(tr("Interview Prep Sheet · Corey Laverdiere", size=21, color=GRAY),
+    prep_sheet_label = f"Interview Prep Sheet · {candidate_name}" if candidate_name else "Interview Prep Sheet"
+    paras.append(para(tr(prep_sheet_label, size=21, color=GRAY),
                        before=0, after=30))
 
     interviewer_lines = [ln.strip() for ln in (interviewer or "").splitlines() if ln.strip()]
@@ -2300,8 +2362,20 @@ def generate_interview_prep(
         run_dir = OUTPUT_DIR / f"{company_safe}_{role_safe}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # Best-effort candidate name, read once from their own resume — used for
+    # both the output filename (sanitized) and the doc header (as-is). This
+    # is a lower-stakes, working personal reference than the cover letter/ATS
+    # resume, so a parse miss just falls back to a generic label instead of
+    # blocking generation.
+    try:
+        resume_path_for_identity = Path(config.master_resume) if config.master_resume else MASTER_RESUME
+        candidate_name = _parse_styled_resume(resume_path_for_identity).get("name", "")
+    except Exception:
+        candidate_name = ""
+    applicant_name_safe = safe_filename(candidate_name) or "Applicant"
+
     prep_out = run_dir / (
-        f"InterviewPrep_{APPLICANT_NAME}_{company_safe}_{role_safe}_{round_safe}.docx"
+        f"InterviewPrep_{applicant_name_safe}_{company_safe}_{role_safe}_{round_safe}.docx"
     )
 
     config.progress(f"\n\U0001f4cb Interview Prep Generator")
@@ -2327,28 +2401,6 @@ def generate_interview_prep(
 
     focus_note   = config.focus or "General — cover the most likely topics for this round type"
     interviewer  = config.interviewer or "Hiring Team"
-    GITHUB_PORTFOLIO = """
-GitHub Portfolio (public repos — use as additional proof points where relevant):
-
-1. FlowShift (TypeScript · https://github.com/cdl82580/flowshift · Live: https://flowshift-cdl.fly.dev)
-   AI-powered iPaaS migration playbook generator. Describe a workflow in one platform, get a full migration
-   playbook and a ready-to-import workflow file for another — powered by Claude. Supports n8n, Make, Zapier,
-   Tray, Boomi, Workato, Celigo, Power Automate. Deployed on Fly.io with Google Drive integration for output.
-   Signals: LLM-integrated product design, multi-platform integration knowledge, full-stack TypeScript, shipped
-   production AI app independently.
-
-2. task-api (JavaScript · https://github.com/cdl82580/task-api · Live: https://task-api-cdl.fly.dev)
-   Full-featured REST API + React frontend for task management. Express 5, SQLite, Vite + React + Tailwind.
-   Features: JWT/API key auth, email verification (Resend), Slack webhooks, file uploads, scheduled DB backups,
-   Fly.io deployment with persistent encrypted volume. Full Swagger/OpenAPI spec.
-   Signals: production-grade API design, auth patterns, observability, deployment automation, full-stack ownership.
-
-3. job-apply (Python · https://github.com/cdl82580/job-apply · Live: https://job-apply-corey.fly.dev)
-   Agentic job application workflow: reads a job posting, calls Claude to tailor resume XML + cover letter,
-   generates DOCX output, uploads to Google Drive, streams progress via SSE. FastAPI backend + Tigris S3 +
-   multi-user auth. Built and shipped solo.
-   Signals: agentic AI workflow design, Claude API integration, FastAPI, cloud deployment, end-to-end ownership.
-"""
 
     prompt = f"""
 Job Posting:
@@ -2366,18 +2418,20 @@ Profile & Voice Guide:
 {profile}
 ---
 
-{GITHUB_PORTFOLIO}
----
-
 Company: {company}
 Role: {role}
 Interviewer: {interviewer}
 Interview Round: {config.round_type}
 Focus / Slant: {focus_note}
 
-This is a working document Corey will skim right before the call — concise, not
-comprehensive. It must fit in 2 pages max. WORD LIMITS ARE HARD CONSTRAINTS. Count
-the words. Do not exceed them. A long answer is a wrong answer.
+This is a working document the candidate will skim right before the call — concise,
+not comprehensive. It must fit in 2 pages max. WORD LIMITS ARE HARD CONSTRAINTS.
+Count the words. Do not exceed them. A long answer is a wrong answer.
+
+If the candidate's resume or profile guide mentions personal/side projects (e.g. a
+Projects section, GitHub links, apps they built on their own time), treat those as
+legitimate additional proof points alongside their work history — but only ones
+actually present in the resume or profile; never invent a project.
 
 Produce a JSON object with EXACTLY these keys (no extras, no omissions):
 {{
@@ -2388,7 +2442,7 @@ Produce a JSON object with EXACTLY these keys (no extras, no omissions):
   "snapshot_company": "string — MAX 35 WORDS. Starts with \\"Company:\\" — size and funding status stated PLAINLY (bootstrapped/no funding found vs. VC-backed — this changes pace/risk calibration). Name the company's own stated pillars/priorities if any.",
   "snapshot_leadership": "string — MAX 25 WORDS. Starts with \\"Leadership:\\" — named leaders and titles if known, otherwise say plainly that none were found.",
   "snapshot_stack": "string — MAX 25 WORDS. Starts with \\"Stack:\\" — named tools/platforms from the posting or known about the company.",
-  "snapshot_read": "string — MAX 30 WORDS. One line of \\"how to read this company\\" synthesis — what the size/stage/funding combination actually means for how Corey should show up.",
+  "snapshot_read": "string — MAX 30 WORDS. One line of \\"how to read this company\\" synthesis — what the size/stage/funding combination actually means for how the candidate should show up.",
   "pillars": [
     {{
       "name": "string — pulled from the company's OWN stated pillar/priority/value language in the posting, not an invented generic category",
@@ -2404,7 +2458,7 @@ Produce a JSON object with EXACTLY these keys (no extras, no omissions):
     }}
   ],
   "questions_to_ask": [
-    "string — MAX 25 WORDS. Specific to this company's actual model, stage, and product — not generic culture-fit filler. Prioritize questions whose answers would change whether Corey accepts an offer."
+    "string — MAX 25 WORDS. Specific to this company's actual model, stage, and product — not generic culture-fit filler. Prioritize questions whose answers would change whether the candidate accepts an offer."
   ],
   "before_interview": [
     "string — MAX 20 WORDS. One concrete prep action — what to pull up/rehearse, what to re-skim, or a due-diligence question worth having ready."
@@ -2428,8 +2482,9 @@ Round-specific guidance for "{config.round_type}":
 - Panel: multiple angles — mix role-fit, technical, and cultural questions.
 
 Proof point recency rule:
-- Only draw examples from Applause (2016 onward), ProdPerfect, HSP Group, eHealth, and personal GitHub projects.
-- Do NOT reference Fidelity Investments or any experience older than 10 years.
+- Only draw examples from roles/projects dated within the last 10 years, per the
+  dates in the candidate's own resume, plus any undated personal/side projects.
+- Do NOT reference roles or experience older than 10 years.
 
 No invented facts — if the posting and your own knowledge of {company} don't cover
 something (funding, team size, tooling, leadership), say so plainly in that field
@@ -2462,6 +2517,7 @@ Return ONLY valid JSON. No preamble, no markdown fences.
     print_step(3, "Building Interview Prep DOCX", wfc)
     js      = _build_prep_docx_js(
         data, company, role, config.interviewer, prep_out, colors,
+        candidate_name=candidate_name,
         interview_date=config.interview_date,
         interview_time=config.interview_time,
         location=config.location,
@@ -2834,7 +2890,8 @@ Return ONLY valid JSON. No preamble, no markdown fences."""
 
     # Save as DOCX
     config.progress("  Generating DOCX…")
-    docx_name = f"ThankYou_{APPLICANT_NAME}_{company_safe}_{role_safe}.docx"
+    applicant_name_safe = _applicant_name_for_filenames(config.master_resume)
+    docx_name = f"ThankYou_{applicant_name_safe}_{company_safe}_{role_safe}.docx"
     docx_path = run_dir / docx_name
 
     js_script = _build_thankyou_docx_js(
@@ -3126,6 +3183,8 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
     result = OptimizeResult(run_dir=run_dir, folder_url=folder_url)
     summaries: list[str] = []
     jd_block = f"Job Description:\n---\n{jd[:6000]}\n---\n\n" if jd else ""
+    applicant_name: str | None = None
+    applicant_contact_line = ""
 
     try:
         # ── Step 2: resume ───────────────────────────────────────────────
@@ -3191,6 +3250,8 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
             )
             config.progress(f"  ✓ Optimized resume written to {out_path.name}")
 
+            applicant_name, applicant_contact_line = _identity_from_resume(out_path, wfc)
+
             _gdrive_upsert_file(service, config.folder_id, styled["name"], out_path)
             config.progress(f"  ✓ Updated {styled['name']} in Drive")
             result.resume_path = out_path
@@ -3217,6 +3278,21 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
         # ── Step 4: cover letter ─────────────────────────────────────────
         if config.optimize_cover_letter:
             print_step(4, "Optimizing Cover Letter", wfc)
+
+            # Resume wasn't touched this run — read identity from the
+            # existing styled resume in Drive instead of re-deriving it.
+            if applicant_name is None:
+                if styled is None:
+                    raise WorkflowError(
+                        f"No tailored resume (Resume_*.docx) found in Drive folder "
+                        f"'{folder_name}' — cannot determine the applicant's identity "
+                        f"for the cover letter"
+                    )
+                identity_src = src_dir / styled["name"]
+                if not identity_src.exists():
+                    identity_src.write_bytes(_gdrive_download_file(service, styled["id"]))
+                applicant_name, applicant_contact_line = _identity_from_resume(identity_src, wfc)
+
             src_cover = src_dir / cover["name"]
             src_cover.write_bytes(_gdrive_download_file(service, cover["id"]))
             config.progress(f"  ✓ Downloaded {cover['name']}")
@@ -3252,6 +3328,7 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
             cover_out = run_dir / cover["name"]
             step6_cover_letter(
                 analysis, config.company, config.role, cover_out, wfc,
+                applicant_name=applicant_name, applicant_contact_line=applicant_contact_line,
                 colors=get_brand_color(config.company, domain=config.domain or None),
             )
             _gdrive_upsert_file(service, config.folder_id, cover["name"], cover_out)

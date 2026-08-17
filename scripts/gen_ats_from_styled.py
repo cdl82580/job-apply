@@ -81,6 +81,8 @@ def parse_xml(docx_path: Path) -> dict:
     #   tagline, summary, competencies, experience jobs, education, certs
 
     result = {
+        "name": "",
+        "contact_line": "",
         "tagline": "",
         "summary": "",
         "competencies": [],
@@ -122,6 +124,20 @@ def parse_xml(docx_path: Path) -> dict:
                     section = "PROJECTS"
                 elif "CERTIFICATIONS" in text:
                     section = "CERTIFICATIONS"
+                continue
+
+            # Name: the very first non-empty paragraph in the document. Every
+            # template this app produces (and every conventional resume)
+            # leads with the candidate's full name, so this never needs the
+            # bold/border heuristics used elsewhere — it's just paragraph #1.
+            if section == "HEADER" and not result["name"]:
+                result["name"] = " ".join(text.split())
+                continue
+
+            # Contact line: first HEADER paragraph containing "|" (the field
+            # separator between phone / email / location / links).
+            if section == "HEADER" and not result["contact_line"] and "|" in text:
+                result["contact_line"] = " ".join(text.split())
                 continue
 
             # Tagline: in HEADER, non-bold paragraph with a bottom border that does
@@ -287,13 +303,19 @@ def build_ats(data: dict, output_path: Path):
         if title:
             add([tr(title, italic=True)], after=40)
 
-    # Name + contact
-    add([tr("COREY LAVERDIERE", bold=True, size=40)], after=0)
-    add([tr(
-        "978-790-4272  |  cdl825@gmail.com  |  Sterling, MA  |"
-        "  linkedin.com/in/coreydlaverdiere  |  github.com/cdl82580  |  Open to Remote",
-        size=20,
-    )], after=120)
+    # Name + contact — read verbatim from the styled resume's own header so
+    # this never shows a different candidate's identity. Fail loudly rather
+    # than silently falling back to any placeholder if extraction came up
+    # empty, since a wrong-or-missing name on an ATS resume is worse than a
+    # build error.
+    if not data.get("name"):
+        raise RuntimeError(
+            "Could not find the candidate's name in the styled resume's header "
+            "— refusing to generate an ATS resume with a missing/placeholder identity."
+        )
+    add([tr(data["name"], bold=True, size=40)], after=0)
+    if data.get("contact_line"):
+        add([tr(data["contact_line"], size=20)], after=120)
 
     # Tagline
     add([tr(data["tagline"], italic=True)], after=160)
