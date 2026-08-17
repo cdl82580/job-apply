@@ -43,6 +43,7 @@ if _env_path.exists():
             os.environ.setdefault(_k.strip(), _v.strip())
 
 from scripts.brand_color import get_brand_color, get_brand_logo
+from scripts.gen_ats_from_styled import parse_xml as _parse_styled_resume, build_ats as _build_ats_resume
 from scripts.ssrf import is_ssrf_url
 
 try:
@@ -66,8 +67,6 @@ APPLICANT_CONTACT_LINE = (
     "978-790-4272  |  cdl825@gmail.com  |  Sterling, MA  |  linkedin.com/in/coreydlaverdiere"
     "  |  github.com/cdl82580"
 )
-APPLICANT_CONTACT_LINE_ATS = APPLICANT_CONTACT_LINE + "  |  Open to Remote"
-
 # GitHub projects — rendered in the ATS resume "Projects" section.
 # Set GITHUB_PROFILE to "" and GITHUB_PROJECTS to [] to suppress both.
 GITHUB_PROFILE = "github.com/cdl82580"
@@ -430,31 +429,6 @@ def step1_read_inputs(
     return job_posting, resume_text, profile
 
 # ---------------------------------------------------------------------------
-# Step 1b: Extract static sections (ProdPerfect / Applause / Fidelity)
-# ---------------------------------------------------------------------------
-
-def step1b_extract_static_sections(resume_text: str, config: WorkflowConfig) -> dict:
-    """Return static resume sections that never change between runs."""
-    static = {
-        "education": [
-            {"degree": "MBA, Management Information Systems", "school": "Clark University, Worcester, MA"},
-            {"degree": "B.S. (Commonwealth Honors College)", "school": "University of Massachusetts, Amherst, MA"},
-            {"degree": "Graduate Certificate, Geographic Information Systems", "school": "Penn State, World Campus"},
-        ],
-        "certifications": [
-            "Tray Build Practitioner & Foundations — Tray.ai",
-            "Associate Flow Essentials — Boomi",
-            "Professional Flow Developer — Boomi",
-            "Microsoft Certified: Azure Fundamentals (AZ-900)",
-            "Microsoft Certified: Power Platform Fundamentals (PL-900)",
-            "ServiceNow Flow Designer Micro-Certification",
-            "Lean Six Sigma Green Belt",
-        ],
-    }
-    config.progress("  ✓ Static sections loaded (education, certifications)")
-    return static
-
-# ---------------------------------------------------------------------------
 # Step 2: Analysis
 # ---------------------------------------------------------------------------
 
@@ -530,14 +504,6 @@ Produce a JSON object with exactly these keys:
   "ehealth_title_subtitle": "string - the subtitle bar text for eHealth (e.g. 'AI Solutions & Integration Engineer  |  Subtitle  |  Tray.ai Platform Owner')",
   "ehealth_bullets": ["6 strings - complete bullet text for each of the 6 eHealth bullets"],
   "hsp_bullets": ["4 strings - complete bullet text for each of the 4 HSP Group bullets"],
-  "experience": [
-    {{
-      "company": "string - exact employer name as it appears on the resume",
-      "title": "string - job title or subtitle bar text for this role",
-      "dates": "string - date range exactly as it appears on the resume",
-      "bullets": ["string - tailored bullet text relevant to this JD"]
-    }}
-  ],
   "summary": "string - full professional summary text (4-5 sentences, written in Corey's voice per profile.md)",
   "cover_letter_hook": "string - the opening angle for the cover letter P1 (what JD language to echo, what story to lead with)",
   "cover_letter_p1": "string - full text of P1 (max 3 sentences)",
@@ -547,13 +513,6 @@ Produce a JSON object with exactly these keys:
   "cover_letter_p5": "string - full text of P5, short close (1-2 sentences only)",
   "contact_name": "string - hiring manager name if determinable from the posting, otherwise 'Hiring Team'"
 }}
-
-For the "experience" field, include every role from the resume in reverse-chronological order.
-For each role, tailor the bullets to this specific JD — surface the work most relevant to the
-job's requirements. More recent and more relevant roles get more bullets (4–6); older or
-less-relevant roles get fewer (2–3). Use exact employer names and date ranges from the resume.
-The eHealth title field should match ehealth_title_subtitle. This experience list drives the
-ATS resume; ehealth_bullets and hsp_bullets are separate and drive the styled XML resume.
 
 Return ONLY valid JSON. No preamble, no markdown fences, no commentary.
 """
@@ -920,147 +879,24 @@ def escape_js_string(s: str) -> str:
 # ---------------------------------------------------------------------------
 
 def step5b_ats_resume(
-    analysis: dict,
-    static_sections: dict,
-    company: str,
-    role: str,
+    styled_resume_path: Path,
     output_path: Path,
     config: WorkflowConfig,
 ):
-    """Generate a clean, ATS-optimized single-column DOCX."""
+    """Generate a clean, ATS-optimized single-column DOCX.
+
+    Parses the just-packed styled resume's XML verbatim (same helper
+    optimize_run() uses to keep the two documents in sync after an edit) so
+    the ATS resume can never drift from what's actually in the tailored
+    resume — no separate LLM-generated copy of the experience section.
+    """
     print_step("5b", "Generating ATS Resume", config)
 
-    paras: list[str] = []
-
-    def tr(text: str, bold: bool = False, italic: bool = False, size: int = 22) -> str:
-        cleaned = " ".join(text.split())
-        escaped = escape_js_string(cleaned)
-        props = [f'text: "{escaped}"', 'font: "Calibri"', f'size: {size}', 'color: "000000"']
-        if bold:
-            props.append("bold: true")
-        if italic:
-            props.append("italic: true")
-        return "new TextRun({ " + ", ".join(props) + " })"
-
-    def add(children_strs: list, before: int = 0, after: int = 80, left: int = 0):
-        spacing = f"before: {before}, after: {after}"
-        indent  = f", indent: {{ left: {left} }}" if left else ""
-        paras.append(
-            f"      new Paragraph({{ spacing: {{ {spacing} }}{indent}, "
-            f"children: [{', '.join(children_strs)}] }})"
-        )
-
-    def heading(text: str):
-        add([tr(text, bold=True, size=24)], before=240, after=60)
-
-    def body(text: str, after: int = 80):
-        add([tr(text)], after=after)
-
-    def bullet(text: str):
-        add([tr("•  " + text)], after=40, left=360)
-
-    def job_header(company_name: str, title: str, dates: str):
-        children = [tr(company_name, bold=True)]
-        if dates:
-            children.append(tr("  |  " + dates))
-        add(children, before=200, after=0)
-        if title:
-            add([tr(title, italic=True)], after=40)
-
-    # Name + contact
-    add([tr("COREY LAVERDIERE", bold=True, size=40)], after=0)
-    add([tr(APPLICANT_CONTACT_LINE_ATS, size=20)], after=120)
-
-    # Tagline
-    if analysis.get("tagline"):
-        add([tr(analysis["tagline"], italic=True)], after=160)
-
-    # Professional Summary
-    heading("Professional Summary")
-    body(analysis.get("summary", ""), after=0)
-
-    # Core Competencies
-    comps = analysis.get("competencies", [])
-    if comps:
-        heading("Core Competencies")
-        for i in range(0, len(comps), 5):
-            body(" | ".join(comps[i:i+5]), after=40)
-
-    # Professional Experience
-    experience = analysis.get("experience", [])
-    if experience:
-        heading("Professional Experience")
-        for role in experience:
-            job_header(
-                role.get("company", ""),
-                role.get("title", ""),
-                role.get("dates", ""),
-            )
-            for b in role.get("bullets", []):
-                bullet(b)
-
-    # Education
-    education = static_sections.get("education", [])
-    if education:
-        heading("Education")
-        for edu in education:
-            children = [tr(edu["degree"], bold=True)]
-            if edu.get("school"):
-                children.append(tr("  —  " + edu["school"]))
-            add(children, before=60, after=40)
-
-    # Certifications
-    certifications = static_sections.get("certifications", [])
-    if certifications:
-        heading("Certifications")
-        for cert in certifications:
-            body(cert, after=40)
-
-    # Projects (suppressed if GITHUB_PROJECTS is empty)
-    if GITHUB_PROJECTS:
-        heading("Projects")
-        for proj in GITHUB_PROJECTS:
-            children = [tr(proj["name"], bold=True)]
-            if proj.get("url"):
-                children.append(tr("  |  " + proj["url"]))
-            add(children, before=100, after=0)
-            body(proj["description"], after=60)
-
-    children_js  = ",\n".join(paras)
-    out_path_str = str(output_path).replace("\\", "/")
-
-    js = f"""\
-const {{ Document, Packer, Paragraph, TextRun }} = require('docx');
-const fs = require('fs');
-
-const doc = new Document({{
-  styles: {{ default: {{ document: {{ run: {{ font: "Calibri", size: 22 }} }} }} }},
-  sections: [{{
-    properties: {{
-      page: {{
-        size: {{ width: 12240, height: 15840 }},
-        margin: {{ top: 720, right: 1080, bottom: 720, left: 1080 }}
-      }}
-    }},
-    children: [
-{children_js}
-    ]
-  }}]
-}});
-
-Packer.toBuffer(doc).then(buffer => {{
-  fs.writeFileSync('{out_path_str}', buffer);
-  console.log('ATS resume written.');
-}});
-"""
-
-    # Write alongside the output file (not CWD) to avoid concurrent-run collisions
-    js_path = output_path.parent / f"ats_resume_gen_{os.urandom(4).hex()}.js"
-    write_file(js_path, js)
-    result = run(["node", str(js_path)], check=False, config=config)
-    js_path.unlink(missing_ok=True)
-    if result.returncode != 0:
-        raise WorkflowError(f"ATS resume JS failed:\n{result.stderr}")
+    data = _parse_styled_resume(styled_resume_path)
+    try:
+        _build_ats_resume(data, output_path, projects=GITHUB_PROJECTS)
+    except RuntimeError as exc:
+        raise WorkflowError(str(exc))
 
     config.progress(f"  ✓ ATS resume written to {output_path}")
 
@@ -1495,21 +1331,21 @@ def step8_upload(
                 mime = "application/pdf"
             else:
                 continue
-            media = MediaFileUpload(str(f), mimetype=mime, resumable=False)
-            service.files().create(
-                body={"name": f.name, "parents": [run_folder_id]},
-                media_body=media,
-                fields="id",
-            ).execute()
+            # Upsert by name (not a blind create) — re-running apply_run for
+            # the same company/role must replace the prior files in place,
+            # not pile up stale duplicates alongside the fresh ones.
+            _gdrive_upsert_file(service, run_folder_id, f.name, f, mime=mime)
             config.progress(f"  ✓ Uploaded {f.name}")
 
         # Convert the styled (non-ATS) resume to PDF via Drive
         styled_resume = run_dir / f"Resume_{APPLICANT_NAME}_{company_safe}_{role_safe}.docx"
         if styled_resume.exists():
+            pdf_name = f"Resume_{APPLICANT_NAME}_{company_safe}_{role_safe}.pdf"
+            _gdrive_delete_by_name(service, run_folder_id, pdf_name)
             _convert_docx_to_pdf_via_drive(
                 service,
                 styled_resume,
-                f"Resume_{APPLICANT_NAME}_{company_safe}_{role_safe}.pdf",
+                pdf_name,
                 run_folder_id,
                 config.progress,
             )
@@ -2123,7 +1959,6 @@ def run_workflow(
 
     # Step 1
     job_posting, resume_text, profile = step1_read_inputs(job_posting, config)
-    static_sections = step1b_extract_static_sections(resume_text, config)
 
     # Step 2
     analysis = step2_analyze(job_posting, resume_text, profile, company, role, contact, config)
@@ -2151,7 +1986,7 @@ def run_workflow(
     step5_pack(resume_out, config)
 
     # Step 5b: ATS resume
-    step5b_ats_resume(analysis, static_sections, company, role, ats_out, config)
+    step5b_ats_resume(resume_out, ats_out, config)
 
     # Step 6: cover letter
     step6_cover_letter(analysis, company, role, cover_out, config, colors=colors)
@@ -3255,8 +3090,6 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
     Raises WorkflowError on any unrecoverable error — nothing is uploaded
     unless the edit + validation pipeline for that document succeeded.
     """
-    from scripts.gen_ats_from_styled import parse_xml as _parse_styled, build_ats as _build_ats
-
     wfc = WorkflowConfig(
         model=config.model,
         progress=config.progress,
@@ -3336,7 +3169,7 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
             src_docx.write_bytes(_gdrive_download_file(service, styled["id"]))
             config.progress(f"  ✓ Downloaded {styled['name']}")
 
-            data      = _parse_styled(src_docx)
+            data      = _parse_styled_resume(src_docx)
             field_map = _build_resume_field_map(data)
             jobs_legend = "\n".join(
                 f"  job{j}: {job.get('company', '?')} ({job.get('dates', '')})"
@@ -3408,7 +3241,7 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
             ats_name = ats["name"] if ats else styled["name"][:-len(".docx")] + "_ATS.docx"
             ats_path = run_dir / ats_name
             try:
-                _build_ats(_parse_styled(out_path), ats_path)
+                _build_ats_resume(_parse_styled_resume(out_path), ats_path, projects=GITHUB_PROJECTS)
             except RuntimeError as exc:
                 raise WorkflowError(str(exc))
             _gdrive_upsert_file(service, config.folder_id, ats_name, ats_path)

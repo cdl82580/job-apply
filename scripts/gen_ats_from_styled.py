@@ -234,7 +234,7 @@ def tr(text: str, bold: bool = False, italic: bool = False, size: int = 22) -> s
     return "new TextRun({ " + ", ".join(props) + " })"
 
 
-def build_ats(data: dict, output_path: Path):
+def build_ats(data: dict, output_path: Path, projects: Optional[list] = None):
     paras = []
 
     def add(children_strs, before=0, after=80, left=0):
@@ -266,7 +266,7 @@ def build_ats(data: dict, output_path: Path):
     add([tr("COREY LAVERDIERE", bold=True, size=40)], after=0)
     add([tr(
         "978-790-4272  |  cdl825@gmail.com  |  Sterling, MA  |"
-        "  linkedin.com/in/coreydlaverdiere  |  Open to Remote",
+        "  linkedin.com/in/coreydlaverdiere  |  github.com/cdl82580  |  Open to Remote",
         size=20,
     )], after=120)
 
@@ -305,6 +305,17 @@ def build_ats(data: dict, output_path: Path):
     heading("Certifications")
     for cert in data["certifications"]:
         body(cert, after=40)
+
+    # Projects (optional — not present in the styled resume XML, so it's
+    # passed in separately by the caller rather than parsed from `data`)
+    if projects:
+        heading("Projects")
+        for proj in projects:
+            children = [tr(proj["name"], bold=True)]
+            if proj.get("url"):
+                children.append(tr("  |  " + proj["url"]))
+            add(children, before=100, after=0)
+            body(proj["description"], after=60)
 
     children_js = ",\n".join(paras)
     out_str = str(output_path).replace("\\", "/")
