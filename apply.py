@@ -67,41 +67,6 @@ APPLICANT_CONTACT_LINE = (
     "978-790-4272  |  cdl825@gmail.com  |  Sterling, MA  |  linkedin.com/in/coreydlaverdiere"
     "  |  github.com/cdl82580"
 )
-# GitHub projects — rendered in the ATS resume "Projects" section.
-# Set GITHUB_PROFILE to "" and GITHUB_PROJECTS to [] to suppress both.
-GITHUB_PROFILE = "github.com/cdl82580"
-
-GITHUB_PROJECTS = [
-    {
-        "name": "FlowShift",
-        "url": "github.com/cdl82580/flowshift",
-        "description": (
-            "AI-powered iPaaS migration playbook generator. Describe a workflow in one platform, "
-            "get a full migration playbook and ready-to-import file for another — powered by Claude. "
-            "Supports n8n, Make, Zapier, Tray, Boomi, Workato, Celigo, Power Automate. "
-            "TypeScript, Fly.io, Google Drive integration."
-        ),
-    },
-    {
-        "name": "task-api",
-        "url": "github.com/cdl82580/task-api",
-        "description": (
-            "Production REST API + React frontend for task management. Express 5, SQLite, Vite + React + Tailwind. "
-            "JWT/API key auth, email verification, Slack webhooks, file uploads, scheduled DB backups, "
-            "Fly.io deployment with persistent encrypted volume. Full OpenAPI spec."
-        ),
-    },
-    {
-        "name": "job-apply",
-        "url": "github.com/cdl82580/job-apply",
-        "description": (
-            "Agentic job application workflow: reads a job posting, calls Claude to tailor resume XML + cover letter, "
-            "generates DOCX output, uploads to Google Drive, streams progress via SSE. "
-            "FastAPI backend, Tigris S3, multi-user auth. Built and shipped solo."
-        ),
-    },
-]
-
 MASTER_RESUME = Path("resumes/master.docx")
 PROFILE_FILE  = Path("profile.md")
 UNPACK_DIR    = Path("unpacked")
@@ -888,13 +853,14 @@ def step5b_ats_resume(
     Parses the just-packed styled resume's XML verbatim (same helper
     optimize_run() uses to keep the two documents in sync after an edit) so
     the ATS resume can never drift from what's actually in the tailored
-    resume — no separate LLM-generated copy of the experience section.
+    resume — no separate LLM-generated copy of the experience section, and
+    no separately hand-maintained copy of the Projects section either.
     """
     print_step("5b", "Generating ATS Resume", config)
 
     data = _parse_styled_resume(styled_resume_path)
     try:
-        _build_ats_resume(data, output_path, projects=GITHUB_PROJECTS)
+        _build_ats_resume(data, output_path)
     except RuntimeError as exc:
         raise WorkflowError(str(exc))
 
@@ -3241,7 +3207,7 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
             ats_name = ats["name"] if ats else styled["name"][:-len(".docx")] + "_ATS.docx"
             ats_path = run_dir / ats_name
             try:
-                _build_ats_resume(_parse_styled_resume(out_path), ats_path, projects=GITHUB_PROJECTS)
+                _build_ats_resume(_parse_styled_resume(out_path), ats_path)
             except RuntimeError as exc:
                 raise WorkflowError(str(exc))
             _gdrive_upsert_file(service, config.folder_id, ats_name, ats_path)

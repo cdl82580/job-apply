@@ -87,10 +87,12 @@ def parse_xml(docx_path: Path) -> dict:
         "jobs": [],            # list of {company, title, dates, bullets}
         "education": [],       # list of {degree, school}
         "certifications": [],
+        "projects": [],        # list of {name, url, description}
     }
 
     section = "HEADER"
     current_job = None
+    current_project = None
 
     for child in children:
         tag = child.tag
@@ -105,6 +107,9 @@ def parse_xml(docx_path: Path) -> dict:
                 if current_job:
                     result["jobs"].append(current_job)
                     current_job = None
+                if current_project:
+                    result["projects"].append(current_project)
+                    current_project = None
                 if "PROFESSIONAL SUMMARY" in text:
                     section = "SUMMARY"
                 elif "CORE COMPETENCIES" in text:
@@ -113,6 +118,8 @@ def parse_xml(docx_path: Path) -> dict:
                     section = "EXPERIENCE"
                 elif "EDUCATION" in text:
                     section = "EDUCATION"
+                elif "PROJECTS" in text:
+                    section = "PROJECTS"
                 elif "CERTIFICATIONS" in text:
                     section = "CERTIFICATIONS"
                 continue
@@ -139,6 +146,22 @@ def parse_xml(docx_path: Path) -> dict:
                 # Each education paragraph: "Degree — School, Location"
                 # We store the whole line and split on " — " or " – "
                 result["education"].append(" ".join(text.split()))
+
+            # Projects: a bold "Name — url" paragraph starts a new project,
+            # followed by a plain (non-bold) description paragraph.
+            elif section == "PROJECTS":
+                clean = " ".join(text.split())
+                if is_bold(child):
+                    if current_project:
+                        result["projects"].append(current_project)
+                    parts = re.split(r"\s+[—–]\s+", clean, maxsplit=1)
+                    current_project = {
+                        "name": parts[0],
+                        "url": parts[1] if len(parts) == 2 else "",
+                        "description": "",
+                    }
+                elif current_project is not None:
+                    current_project["description"] = clean
 
             # Certifications
             elif section == "CERTIFICATIONS":
@@ -208,9 +231,11 @@ def parse_xml(docx_path: Path) -> dict:
                     "bullets": [],
                 }
 
-    # Flush last job
+    # Flush last job / project
     if current_job:
         result["jobs"].append(current_job)
+    if current_project:
+        result["projects"].append(current_project)
 
     return result
 
@@ -234,7 +259,7 @@ def tr(text: str, bold: bool = False, italic: bool = False, size: int = 22) -> s
     return "new TextRun({ " + ", ".join(props) + " })"
 
 
-def build_ats(data: dict, output_path: Path, projects: Optional[list] = None):
+def build_ats(data: dict, output_path: Path):
     paras = []
 
     def add(children_strs, before=0, after=80, left=0):
@@ -301,13 +326,9 @@ def build_ats(data: dict, output_path: Path, projects: Optional[list] = None):
             children = [tr(edu_line, bold=True)]
         add(children, before=60, after=40)
 
-    # Certifications
-    heading("Certifications")
-    for cert in data["certifications"]:
-        body(cert, after=40)
-
-    # Projects (optional — not present in the styled resume XML, so it's
-    # passed in separately by the caller rather than parsed from `data`)
+    # Projects (parsed verbatim from the styled resume's own Projects
+    # section — omitted entirely if that resume doesn't have one)
+    projects = data.get("projects", [])
     if projects:
         heading("Projects")
         for proj in projects:
@@ -315,7 +336,13 @@ def build_ats(data: dict, output_path: Path, projects: Optional[list] = None):
             if proj.get("url"):
                 children.append(tr("  |  " + proj["url"]))
             add(children, before=100, after=0)
-            body(proj["description"], after=60)
+            if proj.get("description"):
+                body(proj["description"], after=60)
+
+    # Certifications
+    heading("Certifications")
+    for cert in data["certifications"]:
+        body(cert, after=40)
 
     children_js = ",\n".join(paras)
     out_str = str(output_path).replace("\\", "/")
