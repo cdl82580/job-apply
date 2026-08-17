@@ -171,7 +171,7 @@ def _build_paragraphs(data: dict[str, Any], style: _Style) -> list[str]:
         if bold:
             props.append("bold: true")
         if italic:
-            props.append("italic: true")
+            props.append("italics: true")
         return "new TextRun({ " + ", ".join(props) + " })"
 
     def add(children_strs: list[str], before: int = 0, after: int = 80,

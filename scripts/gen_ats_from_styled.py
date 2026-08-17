@@ -49,7 +49,24 @@ def has_bottom_border(para: ET.Element) -> bool:
 
 
 def is_bullet(para: ET.Element) -> bool:
-    return para.find(f".//{w('numPr')}") is not None
+    """True for a real Word list item (numPr) or this app's own JS-based DOCX
+    generators' convention of a literal "•  " text prefix instead of real
+    list numbering — both appear across resumes this app itself produces."""
+    if para.find(f".//{w('numPr')}") is not None:
+        return True
+    return get_text(para).lstrip().startswith("•")
+
+
+def clean_bullet_text(text: str) -> str:
+    """Collapse whitespace and strip a literal "•" prefix if present.
+
+    Real Word list items (numPr) never have the bullet character in their
+    text at all — the glyph is drawn by list formatting. This app's own
+    generators write a literal "•" instead, so both conventions need to
+    normalize to the same clean field text.
+    """
+    cleaned = " ".join(text.split())
+    return cleaned[1:].strip() if cleaned.startswith("•") else cleaned
 
 
 def is_section_header(para: ET.Element) -> bool:
@@ -112,17 +129,23 @@ def parse_xml(docx_path: Path) -> dict:
                 if current_project:
                     result["projects"].append(current_project)
                     current_project = None
-                if "PROFESSIONAL SUMMARY" in text:
+                # Case-insensitive: this app's own three wizard-generated
+                # resume templates use Title Case headings ("Professional
+                # Summary"), not the ALL-CAPS convention the repo's own
+                # master.docx happens to use — a case-sensitive match would
+                # silently fail to parse them at all.
+                text_upper = text.upper()
+                if "PROFESSIONAL SUMMARY" in text_upper:
                     section = "SUMMARY"
-                elif "CORE COMPETENCIES" in text:
+                elif "CORE COMPETENCIES" in text_upper:
                     section = "COMPETENCIES"
-                elif "PROFESSIONAL EXPERIENCE" in text:
+                elif "PROFESSIONAL EXPERIENCE" in text_upper:
                     section = "EXPERIENCE"
-                elif "EDUCATION" in text:
+                elif "EDUCATION" in text_upper:
                     section = "EDUCATION"
-                elif "PROJECTS" in text:
+                elif "PROJECTS" in text_upper:
                     section = "PROJECTS"
-                elif "CERTIFICATIONS" in text:
+                elif "CERTIFICATIONS" in text_upper:
                     section = "CERTIFICATIONS"
                 continue
 
@@ -152,10 +175,29 @@ def parse_xml(docx_path: Path) -> dict:
             if section == "SUMMARY":
                 result["summary"] = " ".join(text.split())
 
-            # Experience bullets
+            # Experience: bullets, plus a paragraph-based job-header layout
+            # (bold "Company [| dates]" line, then an italic title line) —
+            # this app's own wizard-generated resumes use plain paragraphs
+            # here rather than the 2-column table master.docx uses (handled
+            # separately below), and plenty of real uploaded resumes will
+            # too, so both layouts need to be recognized.
             elif section == "EXPERIENCE" and is_bullet(child):
                 if current_job is not None:
-                    current_job["bullets"].append(" ".join(text.split()))
+                    current_job["bullets"].append(clean_bullet_text(text))
+            elif section == "EXPERIENCE" and is_bold(child) and not is_italic(child):
+                if current_job:
+                    result["jobs"].append(current_job)
+                clean = " ".join(text.split())
+                parts = re.split(r"\s+\|\s+", clean, maxsplit=1)
+                current_job = {
+                    "company": parts[0],
+                    "title": "",
+                    "dates": parts[1] if len(parts) == 2 else "",
+                    "bullets": [],
+                }
+            elif (section == "EXPERIENCE" and is_italic(child)
+                    and current_job is not None and not current_job["title"]):
+                current_job["title"] = " ".join(text.split())
 
             # Education
             elif section == "EDUCATION":
@@ -182,7 +224,7 @@ def parse_xml(docx_path: Path) -> dict:
             # Certifications
             elif section == "CERTIFICATIONS":
                 if is_bullet(child):
-                    result["certifications"].append(" ".join(text.split()))
+                    result["certifications"].append(clean_bullet_text(text))
 
         elif tag == w("tbl"):
             rows = child.findall(w("tr"))
@@ -271,7 +313,7 @@ def tr(text: str, bold: bool = False, italic: bool = False, size: int = 22) -> s
     if bold:
         props.append("bold: true")
     if italic:
-        props.append("italic: true")
+        props.append("italics: true")
     return "new TextRun({ " + ", ".join(props) + " })"
 
 

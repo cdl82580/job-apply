@@ -12,7 +12,7 @@ Includes a full-featured application tracker, calendar, admin dashboard, webhook
 
 ### Agent
 - **Master Resume Builder** — guided Q&A wizard for users who don't have a master resume yet (or want to rebuild one): repeatable job/education/certification entries with add/remove bullet-point rows, one of three original DOCX templates (Technical/ATS-Clean, Traditional/Chronological, Executive/Leadership with a competency grid), optional single Claude polish pass that tightens wording without inventing facts or numbers. Smart input fields: native email/URL validation, live phone number formatting as-you-type (`libphonenumber-js`, national format per country), month/year date pickers for job dates, and search-as-you-type autocomplete for city fields (OpenStreetMap Nominatim, proxied server-side) and the education institution field (US Dept of Education College Scorecard, falling back to the Hipolabs universities API for schools outside the US — results show a logo.dev thumbnail, name/alias, and city/state/country). Generating a new resume saves it directly as the user's live master resume; if one already exists, generating a new one requires explicit overwrite confirmation and automatically keeps the replaced version as a one-slot backup (downloadable and restorable from the Profile page — see Auth & Accounts below). Pinned as the first card on the Agent page since it's the prerequisite for every other agent.
-- **Tailored resume** — styled DOCX with brand colors, targeted bullets, competency grid
+- **Tailored resume** — styled DOCX with brand colors, targeted bullets, competency grid; edits are applied by field (tagline, summary, each competency cell, each job's title/bullets) derived from that user's own master resume, not a fixed set of employer names or a fixed competency-grid shape — works with whatever jobs/bullets/cells their resume actually has, including resumes built through the Master Resume Builder wizard
 - **ATS resume** — plain single-column DOCX, no tables or text boxes, parser-safe; content — including the candidate's own name and contact line — is parsed verbatim from the tailored styled resume's XML (`scripts/gen_ats_from_styled.py`) rather than generated separately, so the two documents can't drift out of sync and never show a different user's identity
 - **Cover letter** — voice-matched DOCX tailored to the role and hiring manager; signed with the candidate's own name and contact line, read from their resume header
 - **Application Questions** — answer freeform application questions (e.g. "Describe a time you led a cross-functional team") using tailored resume, JD, and profile context; tone selector (professional/conversational/technical/concise), optional character limit, two-phase clarification flow (agent can ask follow-ups before answering), editable answer with copy-to-clipboard and refinement chips
@@ -698,8 +698,8 @@ The prompt in `apply.py` (`generate_interview_prep`) has hard `MAX N WORDS` limi
 per field. Tighten these if Claude is still over-generating.
 
 ### If interview prep proof points reference old roles
-The recency rule is enforced in the prompt: only Applause (2016+), ProdPerfect,
-HSP Group, eHealth, and GitHub projects are allowed. Fidelity is explicitly excluded.
+The recency rule is enforced in the prompt: only roles/projects dated within the
+last 10 years, per the dates in the user's own resume — no hardcoded employer list.
 
 ### If Google Drive token expires
 The token is refreshed automatically and persisted to Tigris (`system/gdrive_token.json`) so it survives container restarts. If it's fully revoked (e.g. after revoking app access in Google Account settings), re-authorize:

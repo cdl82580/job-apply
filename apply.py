@@ -428,10 +428,21 @@ def step2_analyze(
     company: str,
     role: str,
     contact: str | None,
+    field_map: dict[str, str],
+    jobs_legend: str,
     config: WorkflowConfig,
 ) -> dict:
-    """Run the analysis pass. Returns a structured dict driving all downstream edits."""
+    """Run the analysis pass. Returns a structured dict driving all downstream edits.
+
+    field_map / jobs_legend come from parsing *this user's own* master resume
+    (see _build_resume_field_map) — the model tailors whatever fields that
+    resume actually has (however many jobs, however many bullets or
+    competency cells each one carries), never a fixed set of employer names
+    or a fixed competency-grid shape.
+    """
     print_step(2, "Analysis", config)
+
+    editable_fields = {k: v for k, v in field_map.items() if k not in ("tagline", "summary")}
 
     prompt = f"""
 Job Posting:
@@ -439,7 +450,7 @@ Job Posting:
 {job_posting}
 ---
 
-Master Resume:
+Master Resume (full text, for context):
 ---
 {resume_text}
 ---
@@ -452,17 +463,36 @@ Profile Guide:
 Company: {company}
 Role: {role}
 
+Jobs on this resume (read-only context for the field ids below):
+{jobs_legend}
+
+Editable resume fields (field id -> current text). Tailor these to the job
+posting above — only include a field in resume_edits if you're actually
+changing it; leave everything else out:
+{json.dumps(editable_fields, indent=2)}
+
+Tailoring guidance:
+- Prioritize the most recent and most relevant jobs — rewrite most or all of
+  their bullets to surface the work that matches this job's requirements.
+- For jobs roughly 10+ years old, or clearly less relevant to this role,
+  make minimal changes or none at all.
+- Rewrite each competency cell (competency_N) to match the JD's own language
+  and priorities, keeping roughly the same length as the current text.
+- Only rewrite a jobN_title if the JD suggests a different subtitle/title
+  framing is more accurate to how this role should be presented.
+- Never invent employers, dates, numbers, tools, or accomplishments that
+  aren't already present somewhere in the master resume.
+
 Produce a JSON object with exactly these keys:
 {{
   "role_type": "string - one of: PS/Delivery, Solutions Engineer, TAM, Integration Engineer, Agent Platform, AI Solutions, Customer Success, Forward Deployed Engineer, Other",
   "framing_angle": "string - 1-2 sentences describing the single narrative thread to run through the entire resume and cover letter",
   "tagline": "string - new tagline for the resume header (1 sentence, punchy, matches framing angle, MUST be under 100 characters)",
   "top_jd_requirements": ["string", "string", "string", "string", "string"],
-  "competencies": ["15 strings, one per cell, in order: row1col1, row1col2, row1col3, row1col4, row1col5, row2col1, row2col2, row2col3, row2col4, row2col5, row3col1, row3col2, row3col3, row3col4, row3col5"],
-  "ehealth_title_subtitle": "string - the subtitle bar text for eHealth (e.g. 'AI Solutions & Integration Engineer  |  Subtitle  |  Tray.ai Platform Owner')",
-  "ehealth_bullets": ["6 strings - complete bullet text for each of the 6 eHealth bullets"],
-  "hsp_bullets": ["4 strings - complete bullet text for each of the 4 HSP Group bullets"],
   "summary": "string - full professional summary text (4-5 sentences, written in the candidate's own voice per the profile guide)",
+  "resume_edits": [
+    {{"field": "<field id from the editable fields map above>", "new": "<replacement text>"}}
+  ],
   "cover_letter_hook": "string - the opening angle for the cover letter P1 (what JD language to echo, what story to lead with)",
   "cover_letter_p1": "string - full text of P1 (max 3 sentences)",
   "cover_letter_p2": "string - full text of P2, primary evidence, most quantified (max 4 sentences)",
@@ -522,6 +552,7 @@ Return ONLY valid JSON. No preamble, no markdown fences, no commentary.
     config.progress(f"\n  Top JD requirements:")
     for i, req in enumerate(data.get("top_jd_requirements", []), 1):
         config.progress(f"    {i}. {req}")
+    config.progress(f"\n  Resume field edits: {len(data.get('resume_edits', []))}")
 
     return data
 
@@ -588,9 +619,17 @@ def _extract_xml_field(xml: str, prefix: str) -> str | None:
     `prefix` must be the first few characters of the field as they appear
     *inside the XML* (entity-escaped: & → &amp;, etc.).  Returns None if not
     found.
+
+    Tolerates (but does not capture) a literal "•" bullet prefix in the XML
+    — this app's own JS-based DOCX generators write bullets as literal text
+    rather than real list numbering (see clean_bullet_text in
+    scripts/gen_ats_from_styled.py, which strips it when reading field
+    values), so `prefix` itself never includes it. Leaving it out of the
+    captured/replaced group means a plain str.replace() naturally leaves
+    that marker in place in the output.
     """
     escaped = re.escape(prefix)
-    pat = r'<w:t(?:\s[^>]*)?>(' + escaped + r'(?:(?!</w:t>).)*)</w:t>'
+    pat = r'<w:t(?:\s[^>]*)?>(?:•\s*)?(' + escaped + r'(?:(?!</w:t>).)*)</w:t>'
     m = re.search(pat, xml, re.S)
     if not m:
         return None
@@ -614,8 +653,14 @@ def _extract_xml_paragraph_after_heading(xml: str, heading_text: str) -> str | N
     containing *heading_text*.  Used for fields whose content may drift between
     master versions (e.g. Professional Summary) so we anchor on the structural
     position, not the text content.
+
+    Case-insensitive: this app's own wizard-generated resume templates use
+    Title Case headings ("Professional Summary"), not the ALL-CAPS convention
+    the repo's own master.docx happens to use.
     """
-    hm = re.search(r'<w:t(?:\s[^>]*)?>' + re.escape(heading_text) + r'</w:t>', xml)
+    hm = re.search(
+        r'<w:t(?:\s[^>]*)?>' + re.escape(heading_text) + r'</w:t>', xml, re.IGNORECASE,
+    )
     if not hm:
         return None
     pos = hm.end()
@@ -627,16 +672,16 @@ def _extract_xml_paragraph_after_heading(xml: str, heading_text: str) -> str | N
     return None
 
 
-# Canonical paragraph and run properties for the Professional Summary.
-# Hardcoded from master.docx so output is consistently styled regardless of
-# what formatting the user's uploaded master carries.
-_SUMMARY_PPR = (
+# Last-resort paragraph/run formatting for the Professional Summary — used
+# only if _build_summary_paragraph() can't find formatting on the resume's
+# own existing summary paragraph to reuse.
+_SUMMARY_PPR_FALLBACK = (
     '<w:pPr>'
     '<w:spacing w:before="60" w:after="80"/>'
     '<w:jc w:val="both"/>'
     '</w:pPr>'
 )
-_SUMMARY_RPR = (
+_SUMMARY_RPR_FALLBACK = (
     '<w:rPr>'
     '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'
     '<w:color w:val="111827"/>'
@@ -650,137 +695,74 @@ def _build_summary_paragraph(old_para: str, new_text: str) -> str:
     """Construct a replacement summary <w:p> from the original paragraph.
 
     Preserves the opening tag (paraId/rsid attributes) so Word doesn't see a
-    new paragraph, then replaces all runs with a single clean run using the
-    canonical formatting from master.docx.
+    new paragraph, then replaces all runs with a single clean run — rebuilt
+    (rather than text-replaced in place) because a long paragraph like this
+    is the one most likely to have been split across multiple <w:r> runs by
+    Word, which a plain string replace could leave partially stale.
+
+    Formatting (paragraph spacing/alignment, font/color/size) is copied from
+    THIS resume's own existing summary paragraph, so a user's own styling
+    choices survive the edit — never a different resume's hardcoded look.
     """
     open_tag_m = re.match(r'<w:p[^>]*>', old_para)
     open_tag = open_tag_m.group(0) if open_tag_m else '<w:p>'
+
+    ppr_m = re.search(r'<w:pPr>.*?</w:pPr>', old_para, re.S)
+    ppr = ppr_m.group(0) if ppr_m else _SUMMARY_PPR_FALLBACK
+
+    rpr_m = re.search(r'<w:rPr>.*?</w:rPr>', old_para, re.S)
+    rpr = rpr_m.group(0) if rpr_m else _SUMMARY_RPR_FALLBACK
+
     escaped_text = _xml_escape(new_text)
     return (
         f'{open_tag}'
-        f'{_SUMMARY_PPR}'
-        f'<w:r>{_SUMMARY_RPR}'
+        f'{ppr}'
+        f'<w:r>{rpr}'
         f'<w:t xml:space="preserve">{escaped_text}</w:t>'
         f'</w:r>'
         f'</w:p>'
     )
 
 
-# Stable unique prefixes for every field that changes on every run.
-# These are the values in master.docx — they're always the `old` side.
-# IMPORTANT: use the entity-escaped form (&amp; not &) to match raw XML.
-_MASTER_TAGLINE_PREFIX    = "Delivering AI-Powered Integrations"
-_MASTER_SUBTITLE_PREFIX   = "AI Solutions &amp; Integration Engineer"
-_MASTER_EHBULLET_PREFIXES = [
-    "Architected and delivered AI-powered proof-of-concepts",
-    "Delivered HAL, an ITSM chatbot agent",
-    "Enterprise platform owner and integration and workflow",
-    "Delivered 4+ production integrations in under 12 months",
-    "Served as Salesforce System Administrator;",
-    "Led discovery and requirements workshops",
-]
-_MASTER_HSPBULLET_PREFIXES = [
-    "Full-stack integration and solutions owner across internal",
-    "Designed and delivered a self-serve pricing quote application",
-    "Delivered 20+ integrations for the GateWay customer portal",
-    "Engaged directly with department leaders as an embedded",
-]
-# 15 competency cells in row-major order (row1·col1 … row3·col5).
-# Entity-escaped prefixes that are long enough to be globally unique.
-_MASTER_COMP_PREFIXES = [
-    "Agentic AI &amp;",
-    "RAG Pipelines &amp;",
-    "REST, SOAP &amp;",
-    "Tray.ai / iPaaS",
-    "Solution Architecture &amp;",
-    "End-to-End Integration &amp;",
-    "Salesforce CRM &amp;",
-    "Microsoft 365 / Graph API",
-    "POC-to-Production Deployment",
-    "Six Sigma Green Belt",
-    "JavaScript / JSON / SQL",
-    "Workday &amp; Okta",
-    "Stakeholder Enablement &amp;",
-    "Technical Documentation &amp; ROI",
-    "Cross-functional Collaboration",
-]
-
-
-def _build_replacement_ops(xml: str, analysis: dict) -> list[tuple[str, str, str]]:
-    """Build (old, new, label) triples for every section that changes each run.
-
-    *old* is the exact substring extracted from the raw XML.
-    *new* is the replacement XML (text-escaped, or a full paragraph element).
-    *label* names the field for logging — printed on NOT FOUND so failures are
-    immediately identifiable.
-
-    No Claude call — no guessing.  If a field can't be found the entry is
-    still emitted with old='' so the caller can report it as NOT FOUND.
-    """
-    ops: list[tuple[str, str, str]] = []
-
-    def op(prefix: str, new_text: str, label: str) -> None:
-        old = _extract_xml_field(xml, prefix)
-        ops.append((old or '', _xml_escape(new_text), label))
-
-    # Tagline
-    op(_MASTER_TAGLINE_PREFIX, analysis['tagline'], 'tagline')
-
-    # Summary — structural extraction: anchor on heading position, not content.
-    # The user's uploaded master may have a different opening sentence than the
-    # repo master, so a content-prefix match is fragile here.
-    old_para = _extract_xml_paragraph_after_heading(xml, 'PROFESSIONAL SUMMARY')
-    if old_para:
-        new_para = _build_summary_paragraph(old_para, analysis['summary'])
-        ops.append((old_para, new_para, 'summary'))
-    else:
-        ops.append(('', _xml_escape(analysis['summary']), 'summary'))
-
-    # Competency cells — analysis['competencies'] is a flat list in row-major
-    # order; zip with the master prefixes so we always replace the right cell.
-    for i, (prefix, new_comp) in enumerate(zip(_MASTER_COMP_PREFIXES, analysis['competencies'])):
-        op(prefix, new_comp, f'comp{i}')
-
-    # eHealth subtitle bar
-    op(_MASTER_SUBTITLE_PREFIX, analysis['ehealth_title_subtitle'], 'ehealth_subtitle')
-
-    # eHealth bullets
-    for i, (prefix, new_bullet) in enumerate(zip(_MASTER_EHBULLET_PREFIXES, analysis['ehealth_bullets'])):
-        op(prefix, new_bullet, f'eh_bullet{i}')
-
-    # HSP Group bullets
-    for i, (prefix, new_bullet) in enumerate(zip(_MASTER_HSPBULLET_PREFIXES, analysis['hsp_bullets'])):
-        op(prefix, new_bullet, f'hsp_bullet{i}')
-
-    return ops
-
-
 def step4_apply_edits(
     analysis: dict,
-    resume_text: str,       # kept for API compatibility; no longer used here
+    field_map: dict[str, str],
     colors: dict | None,
     config: WorkflowConfig,
 ) -> tuple[int, int]:
     """Apply all content edits and brand colors to the unpacked XML.
 
-    Derives every `old` search string directly from the raw XML (no Claude
-    call, no pandoc-rendered guessing) so replacements are always exact.
+    field_map (from _build_resume_field_map, parsed from this user's own
+    master resume) drives which fields exist and what their current text is
+    — the same generic, structure-agnostic mechanism optimize_run() uses, so
+    this works for any resume layout, not just a fixed set of employer names
+    and a fixed competency-grid shape. The `old` search string is always
+    derived from the field's *current* text (_apply_optimize_edits), never a
+    hardcoded literal.
+
     Returns (succeeded, attempted).
     """
     print_step(4, "Applying Resume Edits", config)
 
     xml = read_document_xml()
-    total_success = 0
-    total_attempted = 0
 
-    for old, safe_new, label in _build_replacement_ops(xml, analysis):
-        total_attempted += 1
-        if old and old in xml:
-            xml = xml.replace(old, safe_new, 1)
-            total_success += 1
-            config.progress(f"  ✓ [{label}] {old[:60]!r}...")
-        else:
-            config.progress(f"  ✗ NOT FOUND: [{label}] {old[:60]!r}...")
+    # Tagline + competency/job-bullet edits: uniform field-based replace.
+    edits = list(analysis.get('resume_edits', []))
+    if analysis.get('tagline'):
+        edits.append({'field': 'tagline', 'new': analysis['tagline']})
+    xml, total_success, total_attempted = _apply_optimize_edits(xml, edits, field_map, config.progress)
+
+    # Summary: whole-paragraph rebuild anchored on heading position (see
+    # _build_summary_paragraph for why), not part of the generic field loop.
+    total_attempted += 1
+    old_para = _extract_xml_paragraph_after_heading(xml, 'PROFESSIONAL SUMMARY')
+    if old_para and analysis.get('summary'):
+        new_para = _build_summary_paragraph(old_para, analysis['summary'])
+        xml = xml.replace(old_para, new_para, 1)
+        total_success += 1
+        config.progress(f"  ✓ [summary] applied")
+    else:
+        config.progress(f"  ✗ NOT FOUND: [summary]")
 
     if colors:
         xml = apply_brand_colors(xml, colors)
@@ -1980,8 +1962,22 @@ def run_workflow(
     # Step 1
     job_posting, resume_text, profile = step1_read_inputs(job_posting, config)
 
+    # Step 1b: parse this user's own master resume into editable fields —
+    # drives step2's output shape and step4's edits, so tailoring works for
+    # whatever jobs/bullets/competency cells that resume actually has.
+    master_resume_path = Path(config.master_resume) if config.master_resume else MASTER_RESUME
+    resume_data = _parse_styled_resume(master_resume_path)
+    field_map   = _build_resume_field_map(resume_data)
+    jobs_legend = "\n".join(
+        f"  job{j}: {job.get('company', '?')} ({job.get('dates', '')})"
+        for j, job in enumerate(resume_data.get("jobs", []), start=1)
+    )
+
     # Step 2
-    analysis = step2_analyze(job_posting, resume_text, profile, company, role, contact, config)
+    analysis = step2_analyze(
+        job_posting, resume_text, profile, company, role, contact,
+        field_map, jobs_legend, config,
+    )
 
     if config.dry_run:
         config.progress("\n  [dry-run] Skipping file generation — analysis complete.")
@@ -1998,7 +1994,7 @@ def run_workflow(
 
     # Steps 3–5: styled resume
     step3_unpack(config)
-    edits_ok, edits_total = step4_apply_edits(analysis, resume_text, colors, config)
+    edits_ok, edits_total = step4_apply_edits(analysis, field_map, colors, config)
     replacements_warning = (
         f"Only {edits_ok}/{edits_total} XML replacements succeeded — "
         "some resume sections may not be fully tailored."
@@ -2101,7 +2097,7 @@ def _build_prep_docx_js(
         props = [f'text: "{escaped}"', 'font: "Arial"',
                  f'size: {size}', f'color: "{esc(color)}"', 'noProof: true']
         if bold:      props.append("bold: true")
-        if italic:    props.append("italic: true")
+        if italic:    props.append("italics: true")
         if underline: props.append("underline: {}")
         return "new TextRun({ " + ", ".join(props) + " })"
 
