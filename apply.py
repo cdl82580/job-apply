@@ -244,12 +244,21 @@ def claude(system: str, user: str, max_tokens: int = 4096,
     Uses the streaming endpoint even though callers get back a plain string —
     the non-streaming endpoint refuses any call whose max_tokens implies it
     could run past 10 minutes (SDK-enforced), which large-budget calls like
-    match scoring can trip even when the actual response is fast."""
+    match scoring can trip even when the actual response is fast.
+
+    Extended thinking is explicitly disabled: every caller here wants a
+    single structured (usually JSON) text response, no reasoning trace, and
+    Claude 5-family models otherwise emit a thinking block by default that
+    silently eats most of max_tokens before any output text is written —
+    a 41-field resume-edit prompt measured at 15k+ output tokens of
+    thinking alone (vs. ~1.8k for the actual JSON) and blew through a
+    16000-token budget with none of it visible to the caller."""
     model = config.model if config else DEFAULT_MODEL
     with _get_client().messages.stream(
         model=model,
         max_tokens=max_tokens,
         system=system,
+        thinking={"type": "disabled"},
         messages=[{"role": "user", "content": user}],
     ) as stream:
         response = stream.get_final_message()
