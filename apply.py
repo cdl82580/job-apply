@@ -253,6 +253,16 @@ def claude(system: str, user: str, max_tokens: int = 4096,
         messages=[{"role": "user", "content": user}],
     ) as stream:
         response = stream.get_final_message()
+    if response.stop_reason == "max_tokens":
+        # The response (JSON or otherwise) is truncated mid-output — never
+        # usable as-is, and a truncated JSON payload otherwise surfaces
+        # downstream as an opaque json.JSONDecodeError ("Unterminated
+        # string...") with no hint that the real cause was hitting the
+        # token budget. Fail loudly here instead so it's fixable on sight.
+        raise WorkflowError(
+            f"Claude response was cut off at the max_tokens={max_tokens} limit "
+            "before finishing — increase max_tokens for this call and retry."
+        )
     for block in response.content:
         if block.type == "text":
             return block.text
@@ -515,7 +525,7 @@ Produce a JSON object with exactly these keys:
 
 Return ONLY valid JSON. No preamble, no markdown fences, no commentary.
 """
-    raw = claude(ANALYSIS_SYSTEM, prompt, max_tokens=16000, config=config)
+    raw = claude(ANALYSIS_SYSTEM, prompt, max_tokens=24000, config=config)
     raw = re.sub(r"^```json\s*", "", raw.strip())
     raw = re.sub(r"\s*```$", "", raw.strip())
 
