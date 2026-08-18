@@ -1338,10 +1338,24 @@ def step8_upload(
                 mime = "application/pdf"
             else:
                 continue
-            # Upsert by name (not a blind create) — re-running apply_run for
-            # the same company/role must replace the prior files in place,
-            # not pile up stale duplicates alongside the fresh ones.
-            _gdrive_upsert_file(service, run_folder_id, f.name, f, mime=mime)
+            # Upsert by document TYPE pattern (not just an exact name match) —
+            # re-running apply_run for the same company/role must replace the
+            # prior files in place, not pile up stale duplicates alongside
+            # the fresh ones. A pattern match also self-heals a Drive file
+            # left over from before a naming-convention change (e.g. an
+            # ALL-CAPS applicant name baked into an older run) by renaming it
+            # to today's name instead of leaving it stuck under the old one.
+            if f.name.endswith("_ATS.docx"):
+                _gdrive_upsert_file_by_pattern(
+                    service, run_folder_id, r"^Resume_.*_ATS\.docx$", f.name, f, mime=mime)
+            elif re.match(r"^Resume_.*\.docx$", f.name):
+                _gdrive_upsert_file_by_pattern(
+                    service, run_folder_id, r"^Resume_(?!.*_ATS\.docx$).*\.docx$", f.name, f, mime=mime)
+            elif re.match(r"^CoverLetter_.*\.docx$", f.name):
+                _gdrive_upsert_file_by_pattern(
+                    service, run_folder_id, r"^CoverLetter_.*\.docx$", f.name, f, mime=mime)
+            else:
+                _gdrive_upsert_file(service, run_folder_id, f.name, f, mime=mime)
             config.progress(f"  ✓ Uploaded {f.name}")
 
         # Convert the styled (non-ATS) resume to PDF via Drive. Looked up by
@@ -1353,7 +1367,7 @@ def step8_upload(
         )
         if styled_resume:
             pdf_name = styled_resume.stem + ".pdf"
-            _gdrive_delete_by_name(service, run_folder_id, pdf_name)
+            _gdrive_delete_by_pattern(service, run_folder_id, r"^Resume_.*\.pdf$")
             _convert_docx_to_pdf_via_drive(
                 service,
                 styled_resume,
@@ -1500,6 +1514,63 @@ def _gdrive_delete_by_name(service, folder_id: str, name: str) -> None:
         ).execute().get("files", [])
         for f in files:
             service.files().delete(fileId=f["id"]).execute()
+    except Exception:
+        pass
+
+
+def _gdrive_upsert_file_by_pattern(
+    service,
+    folder_id: str,
+    name_pattern: str,
+    target_name: str,
+    local_path: Path,
+    mime: str = _MIME_DOCX,
+) -> str:
+    """Upload local_path into a Drive folder as target_name, replacing the
+    content of any existing file whose CURRENT name matches name_pattern
+    (not just an exact match on target_name).
+
+    Keeps the matched file's ID stable (so existing share links keep
+    working) but renames it to target_name when the current name doesn't
+    already match — self-heals a filename left over from before a naming
+    convention changed (e.g. an ALL-CAPS applicant name baked into an
+    earlier run's Drive file), instead of leaving it stuck under the old
+    name forever or piling up a duplicate under the new one.
+    """
+    from googleapiclient.http import MediaFileUpload
+
+    files = service.files().list(
+        q=f"'{folder_id}' in parents and trashed=false",
+        fields="files(id, name)",
+        pageSize=100,
+    ).execute().get("files", [])
+    existing = next((f for f in files if re.match(name_pattern, f["name"])), None)
+
+    media = MediaFileUpload(str(local_path), mimetype=mime, resumable=False)
+    if existing:
+        body = {} if existing["name"] == target_name else {"name": target_name}
+        return service.files().update(
+            fileId=existing["id"], body=body, media_body=media, fields="id",
+        ).execute()["id"]
+    return service.files().create(
+        body={"name": target_name, "parents": [folder_id]},
+        media_body=media, fields="id",
+    ).execute()["id"]
+
+
+def _gdrive_delete_by_pattern(service, folder_id: str, name_pattern: str) -> None:
+    """Best-effort delete of all files in a Drive folder whose name matches
+    name_pattern — used to clear out a stale-cased PDF before regenerating
+    one under the current naming convention."""
+    try:
+        files = service.files().list(
+            q=f"'{folder_id}' in parents and trashed=false",
+            fields="files(id, name)",
+            pageSize=100,
+        ).execute().get("files", [])
+        for f in files:
+            if re.match(name_pattern, f["name"]):
+                service.files().delete(fileId=f["id"]).execute()
     except Exception:
         pass
 
@@ -1963,6 +2034,17 @@ def run_workflow(
     resume_out = run_dir / f"Resume_{applicant_name_safe}_{company_safe}_{role_safe}.docx"
     ats_out    = run_dir / f"Resume_{applicant_name_safe}_{company_safe}_{role_safe}_ATS.docx"
     cover_out  = run_dir / f"CoverLetter_{applicant_name_safe}_{company_safe}_{role_safe}.docx"
+
+    # Purge stale same-company/role outputs left in run_dir from an earlier
+    # run under a different applicant-name casing (e.g. a run from before
+    # title_case_name() existed) — otherwise they'd sit alongside today's
+    # correctly-named files, get uploaded to Drive as orphaned duplicates,
+    # and make step8_upload's Resume_*.docx glob (used to pick which resume
+    # to convert to PDF) non-deterministic.
+    for stale in [*run_dir.glob("Resume_*.docx"), *run_dir.glob("CoverLetter_*.docx"),
+                  *run_dir.glob("Resume_*.pdf")]:
+        if stale not in (resume_out, ats_out, cover_out):
+            stale.unlink(missing_ok=True)
 
     config.progress(f"\n\U0001f680 Job Application Agent")
     config.progress(f"   Company : {company}")
@@ -3153,6 +3235,9 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
     folder_url  = meta.get("webViewLink")
     config.progress(f"  ✓ Drive folder: {folder_name}")
 
+    company_safe = safe_filename(config.company)
+    role_safe    = safe_filename(config.role)
+
     files = _gdrive_list_files(service, config.folder_id)
     styled = next(
         (f for f in files
@@ -3259,26 +3344,45 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
 
             applicant_name, applicant_contact_line = _identity_from_resume(out_path, wfc)
 
-            _gdrive_upsert_file(service, config.folder_id, styled["name"], out_path)
-            config.progress(f"  ✓ Updated {styled['name']} in Drive")
+            # Re-derive the canonical filename from the resume's own name
+            # header rather than reusing styled["name"] verbatim — a Drive
+            # folder created before title_case_name() existed would otherwise
+            # keep regenerating an ALL-CAPS filename forever, since Optimize
+            # runs are the only touchpoint most applications get after the
+            # initial Run. Renaming (not just re-uploading under the old
+            # name) keeps the file ID stable, so this self-heals in place.
+            applicant_name_safe = safe_filename(title_case_name(applicant_name))
+            canonical_resume_name = f"Resume_{applicant_name_safe}_{company_safe}_{role_safe}.docx"
+            if out_path.name != canonical_resume_name:
+                renamed = run_dir / canonical_resume_name
+                out_path.replace(renamed)
+                out_path = renamed
+
+            _gdrive_upsert_file_by_pattern(
+                service, config.folder_id, r"^Resume_(?!.*_ATS\.docx$).*\.docx$",
+                out_path.name, out_path,
+            )
+            config.progress(f"  ✓ Updated {out_path.name} in Drive")
             result.resume_path = out_path
 
             # Keep the Drive PDF in sync (best-effort, like step8_upload)
-            pdf_name = styled["name"][:-len(".docx")] + ".pdf"
-            _gdrive_delete_by_name(service, config.folder_id, pdf_name)
+            pdf_name = out_path.stem + ".pdf"
+            _gdrive_delete_by_pattern(service, config.folder_id, r"^Resume_.*\.pdf$")
             _convert_docx_to_pdf_via_drive(
                 service, out_path, pdf_name, config.folder_id, config.progress,
             )
 
             # ── Step 3: regenerate the ATS resume from the optimized resume
             print_step(3, "Regenerating ATS Resume", wfc)
-            ats_name = ats["name"] if ats else styled["name"][:-len(".docx")] + "_ATS.docx"
+            ats_name = out_path.stem + "_ATS.docx"
             ats_path = run_dir / ats_name
             try:
                 _build_ats_resume(_parse_styled_resume(out_path), ats_path)
             except RuntimeError as exc:
                 raise WorkflowError(str(exc))
-            _gdrive_upsert_file(service, config.folder_id, ats_name, ats_path)
+            _gdrive_upsert_file_by_pattern(
+                service, config.folder_id, r"^Resume_.*_ATS\.docx$", ats_name, ats_path,
+            )
             config.progress(f"  ✓ Updated {ats_name} in Drive")
             result.ats_path = ats_path
 
@@ -3332,14 +3436,20 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
             for i, p in enumerate(paragraphs, start=1):
                 analysis[f"cover_letter_p{i}"] = " ".join(p.split())
 
-            cover_out = run_dir / cover["name"]
+            # See the resume branch above for why this is re-derived rather
+            # than reusing cover["name"] verbatim.
+            applicant_name_safe = safe_filename(title_case_name(applicant_name))
+            cover_name = f"CoverLetter_{applicant_name_safe}_{company_safe}_{role_safe}.docx"
+            cover_out = run_dir / cover_name
             step6_cover_letter(
                 analysis, config.company, config.role, cover_out, wfc,
                 applicant_name=applicant_name, applicant_contact_line=applicant_contact_line,
                 colors=get_brand_color(config.company, domain=config.domain or None),
             )
-            _gdrive_upsert_file(service, config.folder_id, cover["name"], cover_out)
-            config.progress(f"  ✓ Updated {cover['name']} in Drive")
+            _gdrive_upsert_file_by_pattern(
+                service, config.folder_id, r"^CoverLetter_.*\.docx$", cover_name, cover_out,
+            )
+            config.progress(f"  ✓ Updated {cover_name} in Drive")
             result.cover_letter_path = cover_out
 
     finally:

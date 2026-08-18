@@ -263,3 +263,111 @@ class TestParseCoverLetterText:
         r = _parse_cover_letter_text(plain)
         assert r["contact_name"] == "Hiring Team"
         assert r["paragraphs"] == ["Only paragraph."]
+
+
+# ── Unit tests: pattern-based Drive upsert/delete (self-healing filenames) ────
+
+class TestGdriveUpsertFileByPattern:
+    """A legacy Drive file (e.g. an ALL-CAPS name from before title_case_name()
+    existed) must be found by document-type pattern and renamed in place —
+    not left under its old name, and not duplicated under the new one."""
+
+    def test_renames_existing_file_matching_pattern(self, tmp_path):
+        from apply import _gdrive_upsert_file_by_pattern
+
+        local = tmp_path / "Resume_CoreyLaverdiere_Acme_SE.docx"
+        local.write_bytes(b"docx bytes")
+
+        service = MagicMock()
+        service.files.return_value.list.return_value.execute.return_value = {
+            "files": [{"id": "file-1", "name": "Resume_COREYLAVERDIERE_Acme_SE.docx"}]
+        }
+        service.files.return_value.update.return_value.execute.return_value = {"id": "file-1"}
+
+        _gdrive_upsert_file_by_pattern(
+            service, "folder-1", r"^Resume_(?!.*_ATS\.docx$).*\.docx$",
+            "Resume_CoreyLaverdiere_Acme_SE.docx", local,
+        )
+
+        kwargs = service.files.return_value.update.call_args.kwargs
+        assert kwargs["fileId"] == "file-1"
+        assert kwargs["body"] == {"name": "Resume_CoreyLaverdiere_Acme_SE.docx"}
+        service.files.return_value.create.assert_not_called()
+
+    def test_no_rename_when_name_already_matches(self, tmp_path):
+        from apply import _gdrive_upsert_file_by_pattern
+
+        local = tmp_path / "Resume_CoreyLaverdiere_Acme_SE.docx"
+        local.write_bytes(b"docx bytes")
+
+        service = MagicMock()
+        service.files.return_value.list.return_value.execute.return_value = {
+            "files": [{"id": "file-1", "name": "Resume_CoreyLaverdiere_Acme_SE.docx"}]
+        }
+        service.files.return_value.update.return_value.execute.return_value = {"id": "file-1"}
+
+        _gdrive_upsert_file_by_pattern(
+            service, "folder-1", r"^Resume_(?!.*_ATS\.docx$).*\.docx$",
+            "Resume_CoreyLaverdiere_Acme_SE.docx", local,
+        )
+
+        assert service.files.return_value.update.call_args.kwargs["body"] == {}
+
+    def test_creates_when_no_existing_match(self, tmp_path):
+        from apply import _gdrive_upsert_file_by_pattern
+
+        local = tmp_path / "Resume_CoreyLaverdiere_Acme_SE.docx"
+        local.write_bytes(b"docx bytes")
+
+        service = MagicMock()
+        service.files.return_value.list.return_value.execute.return_value = {"files": []}
+        service.files.return_value.create.return_value.execute.return_value = {"id": "new-id"}
+
+        _gdrive_upsert_file_by_pattern(
+            service, "folder-1", r"^Resume_(?!.*_ATS\.docx$).*\.docx$",
+            "Resume_CoreyLaverdiere_Acme_SE.docx", local,
+        )
+
+        kwargs = service.files.return_value.create.call_args.kwargs
+        assert kwargs["body"] == {"name": "Resume_CoreyLaverdiere_Acme_SE.docx", "parents": ["folder-1"]}
+        service.files.return_value.update.assert_not_called()
+
+    def test_ignores_non_matching_files_in_folder(self, tmp_path):
+        # An ATS resume already in the folder must not be mistaken for the
+        # styled (non-ATS) resume just because both start with "Resume_".
+        from apply import _gdrive_upsert_file_by_pattern
+
+        local = tmp_path / "Resume_CoreyLaverdiere_Acme_SE.docx"
+        local.write_bytes(b"docx bytes")
+
+        service = MagicMock()
+        service.files.return_value.list.return_value.execute.return_value = {
+            "files": [{"id": "ats-1", "name": "Resume_COREYLAVERDIERE_Acme_SE_ATS.docx"}]
+        }
+        service.files.return_value.create.return_value.execute.return_value = {"id": "new-id"}
+
+        _gdrive_upsert_file_by_pattern(
+            service, "folder-1", r"^Resume_(?!.*_ATS\.docx$).*\.docx$",
+            "Resume_CoreyLaverdiere_Acme_SE.docx", local,
+        )
+
+        service.files.return_value.create.assert_called_once()
+        service.files.return_value.update.assert_not_called()
+
+
+class TestGdriveDeleteByPattern:
+    def test_deletes_only_matching_files(self):
+        from apply import _gdrive_delete_by_pattern
+
+        service = MagicMock()
+        service.files.return_value.list.return_value.execute.return_value = {
+            "files": [
+                {"id": "old-pdf", "name": "Resume_COREYLAVERDIERE_Acme_SE.pdf"},
+                {"id": "other", "name": "job_description.md"},
+            ]
+        }
+        service.files.return_value.delete.return_value.execute.return_value = {}
+
+        _gdrive_delete_by_pattern(service, "folder-1", r"^Resume_.*\.pdf$")
+
+        service.files.return_value.delete.assert_called_once_with(fileId="old-pdf")
