@@ -3310,7 +3310,7 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
                 f"Jobs legend (read-only context for the field ids):\n{jobs_legend}\n\n"
                 f"Editable fields (field id -> current text):\n"
                 f"{json.dumps(field_map, indent=2)}",
-                max_tokens=4096,
+                max_tokens=16000,
                 config=wfc,
             )
             parsed = _parse_claude_json(raw)
@@ -3430,7 +3430,7 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
                 f"Company: {config.company}\nRole: {config.role}\n\n"
                 f"User instruction:\n---\n{config.instruction}\n---\n\n"
                 f"Current cover letter body paragraphs:\n---\n{current}\n---",
-                max_tokens=4096,
+                max_tokens=8000,
                 config=wfc,
             )
             parsed     = _parse_claude_json(raw)
