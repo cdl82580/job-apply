@@ -337,6 +337,17 @@ def safe_filename(s: str) -> str:
     """Strip characters that are not safe for use in filenames."""
     return re.sub(r"[^A-Za-z0-9_-]", "", s)
 
+def title_case_name(name: str) -> str:
+    """Normalize a name to Title Case for use in filenames.
+
+    Master resumes style the name header however the user likes (e.g. ALL
+    CAPS) — that's fine for on-page display, but copied verbatim into a
+    filename it reads as "COREYLAVERDIERE" instead of "CoreyLaverdiere".
+    Capitalizes only the first letter of each letter-run, so hyphens and
+    apostrophes stay as word boundaries (e.g. "O'BRIEN" -> "O'Brien").
+    """
+    return re.sub(r"[A-Za-z]+", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), name)
+
 def print_step(n: str | int, title: str, config: WorkflowConfig | None = None):
     progress = config.progress if config else print
     progress(f"\n{'='*60}")
@@ -875,7 +886,7 @@ def _applicant_name_for_filenames(resume_path: Path | str | None) -> str:
     try:
         name = _parse_styled_resume(Path(resume_path) if resume_path else MASTER_RESUME).get("name", "")
         if name:
-            return safe_filename(name) or "Applicant"
+            return safe_filename(title_case_name(name)) or "Applicant"
     except Exception:
         pass
     return "Applicant"
@@ -2368,7 +2379,7 @@ def generate_interview_prep(
         candidate_name = _parse_styled_resume(resume_path_for_identity).get("name", "")
     except Exception:
         candidate_name = ""
-    applicant_name_safe = safe_filename(candidate_name) or "Applicant"
+    applicant_name_safe = safe_filename(title_case_name(candidate_name)) or "Applicant"
 
     prep_out = run_dir / (
         f"InterviewPrep_{applicant_name_safe}_{company_safe}_{role_safe}_{round_safe}.docx"

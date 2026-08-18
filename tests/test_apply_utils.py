@@ -39,6 +39,31 @@ class TestSafeFilename:
         assert self.fn("ABC123") == "ABC123"
 
 
+class TestTitleCaseName:
+    @pytest.fixture(autouse=True)
+    def fn(self):
+        from apply import title_case_name
+        self.fn = title_case_name
+
+    def test_all_caps(self):
+        assert self.fn("COREY LAVERDIERE") == "Corey Laverdiere"
+
+    def test_all_lowercase(self):
+        assert self.fn("corey laverdiere") == "Corey Laverdiere"
+
+    def test_already_title_case_unchanged(self):
+        assert self.fn("Corey Laverdiere") == "Corey Laverdiere"
+
+    def test_apostrophe_name(self):
+        assert self.fn("O'BRIEN") == "O'Brien"
+
+    def test_hyphenated_name(self):
+        assert self.fn("MARY-JANE SMITH-JONES") == "Mary-Jane Smith-Jones"
+
+    def test_empty_string(self):
+        assert self.fn("") == ""
+
+
 class TestEscapeJsString:
     @pytest.fixture(autouse=True)
     def fn(self):
