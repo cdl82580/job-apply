@@ -2169,7 +2169,9 @@ NATURAL FLOW: Make every answer sound like something the candidate would actuall
 say out loud, not a script. Vary sentence length and avoid repetitive sentence
 patterns.
 
-Return ONLY valid JSON. No preamble, no markdown fences.
+Return ONLY valid JSON. No preamble, no markdown fences. Emit the JSON object
+exactly once — do not think out loud, self-correct, or restart mid-response;
+if you notice a mistake, just get the object right the first time.
 """
 
 
@@ -2601,14 +2603,57 @@ rather than guessing.
 Return ONLY valid JSON. No preamble, no markdown fences.
 """
 
-    raw = claude(PREP_SYSTEM, prompt, max_tokens=16000, config=wfc)
-    raw = re.sub(r"^```json\s*", "", raw.strip())
-    raw = re.sub(r"\s*```$",     "", raw.strip())
+    # Claude occasionally second-guesses itself mid-response on this large a
+    # schema — emits a complete-but-partial JSON object, some visible
+    # "wait, let me redo that" text, then a second, fuller object. A plain
+    # json.loads() chokes on the trailing text ("Extra data"). Scan for every
+    # balanced top-level {...} object in the raw text and take the LAST one
+    # that parses and carries the required keys — that's the self-corrected
+    # final answer. Retry the call once if nothing usable turns up.
+    last_err: json.JSONDecodeError | ValueError | None = None
+    data = None
+    raw = ""
+    for attempt in range(2):
+        raw = claude(PREP_SYSTEM, prompt, max_tokens=16000, config=wfc)
+        raw = re.sub(r"^```json\s*", "", raw.strip())
+        raw = re.sub(r"\s*```$",     "", raw.strip())
 
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise WorkflowError(f"Failed to parse prep JSON: {e}\n\nRaw:\n{raw[:2000]}")
+        candidates = []
+        depth, in_str, esc, start = 0, False, False, -1
+        for i, c in enumerate(raw):
+            if esc:
+                esc = False
+            elif c == '\\' and in_str:
+                esc = True
+            elif c == '"':
+                in_str = not in_str
+            elif not in_str:
+                if c == '{':
+                    if depth == 0:
+                        start = i
+                    depth += 1
+                elif c == '}':
+                    depth = max(depth - 1, 0)
+                    if depth == 0 and start != -1:
+                        candidates.append(raw[start:i + 1])
+                        start = -1
+
+        for candidate in reversed(candidates):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError as e:
+                last_err = e
+                continue
+            if "elevator_pitch" in parsed:
+                data = parsed
+                break
+            last_err = ValueError("parsed JSON object missing required keys")
+
+        if data is not None:
+            break
+
+    if data is None:
+        raise WorkflowError(f"Failed to parse prep JSON: {last_err}\n\nRaw:\n{raw[:2000]}")
 
     config.progress(
         f"  ✓ Generated: {len(data.get('pillars', []))} priority pillars, "
