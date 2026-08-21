@@ -780,7 +780,9 @@ def step4_apply_edits(
     edits = list(analysis.get('resume_edits', []))
     if analysis.get('tagline'):
         edits.append({'field': 'tagline', 'new': analysis['tagline']})
-    xml, total_success, total_attempted = _apply_optimize_edits(xml, edits, field_map, config.progress)
+    xml, total_success, total_attempted, total_unchanged = _apply_optimize_edits(
+        xml, edits, field_map, config.progress
+    )
 
     # Summary: whole-paragraph rebuild anchored on heading position (see
     # _build_summary_paragraph for why), not part of the generic field loop.
@@ -799,13 +801,19 @@ def step4_apply_edits(
         config.progress(f"  ✓ Brand colors applied (primary=#{colors['primary']})")
 
     write_document_xml(xml)
-    config.progress(f"\n  Result: {total_success}/{total_attempted} replacements succeeded")
 
-    if total_attempted > 0 and total_success < total_attempted * 0.7:
+    # Fields Claude deliberately left unchanged (already fit the JD) aren't
+    # failures — exclude them from the ratio so they can't drag a fully
+    # successful run below the warning threshold.
+    real_attempted = total_attempted - total_unchanged
+    unchanged_note = f" ({total_unchanged} already matched — left unchanged)" if total_unchanged else ""
+    config.progress(f"\n  Result: {total_success}/{real_attempted} replacements succeeded{unchanged_note}")
+
+    if real_attempted > 0 and total_success < real_attempted * 0.7:
         config.progress(f"\n⚠️  Warning: fewer than 70% of replacements succeeded.")
         config.progress(f"   Check the XML manually or re-run with --debug flag.")
 
-    return total_success, total_attempted
+    return total_success, real_attempted
 
 
 def step5_pack(resume_out: Path, config: WorkflowConfig):
@@ -3172,16 +3180,24 @@ def _apply_optimize_edits(
     edits: list[dict],
     field_map: dict[str, str],
     progress: Callable[[str], None],
-) -> tuple[str, int, int]:
+) -> tuple[str, int, int, int]:
     """Apply Claude's field-level edits to the raw document XML.
 
     Claude only names fields and replacement text — the `old` search string is
     always derived here from the field's current text (entity-escaped, with
     page-break splits handled by _extract_xml_field), never guessed by Claude.
-    Returns (xml, succeeded, attempted).
+
+    A field where Claude's proposed text is identical to what's already there
+    is a deliberate no-op (that field already fit), not a matching failure —
+    it's tracked separately in `unchanged` so callers can exclude it from
+    their success-ratio math instead of it dragging down a fully-successful
+    run's percentage and tripping a false "fewer than 70%" warning.
+
+    Returns (xml, succeeded, attempted, unchanged).
     """
     succeeded = 0
     attempted = 0
+    unchanged = 0
 
     for edit in edits:
         field = (edit.get("field") or "").strip()
@@ -3193,6 +3209,7 @@ def _apply_optimize_edits(
             progress(f"  ✗ Skipped: unknown field or empty replacement ({field!r})")
             continue
         if new == cur:
+            unchanged += 1
             progress(f"  – {field}: unchanged, skipping")
             continue
         if field == "tagline" and not tagline_fits(new):
@@ -3220,7 +3237,7 @@ def _apply_optimize_edits(
         succeeded += 1
         progress(f"  ✓ {field}: {new[:70]!r}...")
 
-    return xml, succeeded, attempted
+    return xml, succeeded, attempted, unchanged
 
 
 def _parse_cover_letter_text(plain: str) -> dict:
@@ -3384,16 +3401,20 @@ def optimize_run(config: OptimizeConfig) -> OptimizeResult:
             xml_path = unpack_dir / "word" / "document.xml"
             xml = xml_path.read_text(encoding="utf-8")
 
-            xml, ok, total = _apply_optimize_edits(xml, edits, field_map, config.progress)
-            config.progress(f"\n  Result: {ok}/{total} replacements succeeded")
-            if ok == 0:
+            xml, ok, total, unchanged = _apply_optimize_edits(xml, edits, field_map, config.progress)
+            # Fields Claude deliberately left unchanged (already matched the
+            # instruction) aren't failures — exclude them from the ratio.
+            real_total = total - unchanged
+            unchanged_note = f" ({unchanged} already matched — left unchanged)" if unchanged else ""
+            config.progress(f"\n  Result: {ok}/{real_total} replacements succeeded{unchanged_note}")
+            if ok == 0 and real_total > 0:
                 raise WorkflowError(
                     "None of the proposed edits matched the document — "
                     "nothing was changed in Drive"
                 )
-            if ok < total:
+            if real_total > 0 and ok < real_total:
                 result.replacements_warning = (
-                    f"Only {ok}/{total} resume edits could be applied — "
+                    f"Only {ok}/{real_total} resume edits could be applied — "
                     "some requested changes may be missing."
                 )
             xml_path.write_text(xml, encoding="utf-8")
