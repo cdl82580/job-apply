@@ -145,8 +145,8 @@ class TestApplyOptimizeEdits:
             {"field": "competency_1", "new": "LLM Pipelines & RAG"},
             {"field": "summary",      "new": "New summary text"},
         ]
-        out, ok, total = _apply_optimize_edits(xml, edits, field_map, _noop)
-        assert (ok, total) == (2, 2)
+        out, ok, total, unchanged = _apply_optimize_edits(xml, edits, field_map, _noop)
+        assert (ok, total, unchanged) == (2, 2, 0)
         assert "LLM Pipelines &amp; RAG" in out
         assert "New summary text" in out
         assert "Old summary" not in out
@@ -154,25 +154,25 @@ class TestApplyOptimizeEdits:
     def test_unknown_field_skipped(self):
         from apply import _apply_optimize_edits
         xml = "<w:t>Something</w:t>"
-        out, ok, total = _apply_optimize_edits(
+        out, ok, total, unchanged = _apply_optimize_edits(
             xml, [{"field": "nope", "new": "x"}], {"summary": "Something"}, _noop)
-        assert (ok, total) == (0, 1)
+        assert (ok, total, unchanged) == (0, 1, 0)
         assert out == xml
 
     def test_zero_matches_when_text_absent(self):
         from apply import _apply_optimize_edits
         xml = "<w:t>Completely different content</w:t>"
-        out, ok, total = _apply_optimize_edits(
+        out, ok, total, unchanged = _apply_optimize_edits(
             xml, [{"field": "summary", "new": "x"}], {"summary": "Not in the doc"}, _noop)
-        assert (ok, total) == (0, 1)
+        assert (ok, total, unchanged) == (0, 1, 0)
         assert out == xml
 
     def test_unchanged_text_skipped(self):
         from apply import _apply_optimize_edits
         xml = "<w:t>Same text</w:t>"
-        out, ok, total = _apply_optimize_edits(
+        out, ok, total, unchanged = _apply_optimize_edits(
             xml, [{"field": "summary", "new": "Same text"}], {"summary": "Same text"}, _noop)
-        assert (ok, total) == (0, 1)
+        assert (ok, total, unchanged) == (0, 1, 1)
         assert out == xml
 
     def test_page_break_split_collapsed(self):
@@ -184,8 +184,8 @@ class TestApplyOptimizeEdits:
         )
         field_map = {"job2_bullet3": "Delivered 20+ integrations for the GateWay customer portal"}
         edits = [{"field": "job2_bullet3", "new": "Shipped 25 GateWay portal integrations"}]
-        out, ok, total = _apply_optimize_edits(xml, edits, field_map, _noop)
-        assert (ok, total) == (1, 1)
+        out, ok, total, unchanged = _apply_optimize_edits(xml, edits, field_map, _noop)
+        assert (ok, total, unchanged) == (1, 1, 0)
         assert "Shipped 25 GateWay portal integrations" in out
         assert "lastRenderedPageBreak" not in out
 
@@ -197,8 +197,8 @@ class TestApplyOptimizeEdits:
             {"field": "summary", "new": "Updated content"},
             {"field": "tagline", "new": "New tagline"},
         ]
-        out, ok, total = _apply_optimize_edits(xml, edits, field_map, _noop)
-        assert (ok, total) == (1, 2)
+        out, ok, total, unchanged = _apply_optimize_edits(xml, edits, field_map, _noop)
+        assert (ok, total, unchanged) == (1, 2, 0)
         assert "Updated content" in out
 
 
