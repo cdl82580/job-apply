@@ -92,6 +92,34 @@ class TestGetBrandColor:
             result = brand_color.get_brand_color("Acme")
         assert result == brand_color.DEFAULT_PALETTE
 
+    def test_light_primary_is_darkened_for_readability(self):
+        """A pale 'accent' color (fine for UI chrome, unreadable as page text)
+        must be darkened before it's used as the primary text color."""
+        search_resp = _resp([{"domain": "acme.com"}])
+        brand_resp = _resp({"colors": [{"type": "accent", "hex": "#FFF3B0"}]})
+        with patch.object(brand_color.requests, "get", side_effect=[search_resp, brand_resp]):
+            result = brand_color.get_brand_color("Acme")
+        assert result["primary"] != "FFF3B0"
+        assert brand_color._contrast_on_white(result["primary"]) >= brand_color._MIN_TEXT_CONTRAST
+
+    def test_dark_primary_passes_through_unchanged(self):
+        search_resp = _resp([{"domain": "acme.com"}])
+        brand_resp = _resp({"colors": [{"type": "accent", "hex": "#112233"}]})
+        with patch.object(brand_color.requests, "get", side_effect=[search_resp, brand_resp]):
+            result = brand_color.get_brand_color("Acme")
+        assert result["primary"] == "112233"
+
+    def test_light_secondary_is_also_darkened(self):
+        search_resp = _resp([{"domain": "acme.com"}])
+        brand_resp = _resp({"colors": [
+            {"type": "accent", "hex": "#112233"},
+            {"type": "dark", "hex": "#FFF3B0"},
+        ]})
+        with patch.object(brand_color.requests, "get", side_effect=[search_resp, brand_resp]):
+            result = brand_color.get_brand_color("Acme")
+        assert result["secondary"] != "FFF3B0"
+        assert brand_color._contrast_on_white(result["secondary"]) >= brand_color._MIN_TEXT_CONTRAST
+
     def test_exception_returns_default(self):
         with patch.object(brand_color.requests, "get", side_effect=Exception("network down")):
             result = brand_color.get_brand_color("Acme")
@@ -177,3 +205,25 @@ class TestDarkenLighten:
     def test_lighten_moves_toward_white(self):
         assert brand_color._lighten("000000", 0.5) == "808080"
         assert brand_color._lighten("336699", 0.0) == "336699"
+
+
+class TestEnsureReadable:
+    def test_already_readable_is_unchanged(self):
+        assert brand_color._ensure_readable("1A3C5E") == "1A3C5E"
+
+    def test_white_is_darkened_to_readable(self):
+        result = brand_color._ensure_readable("FFFFFF")
+        assert result != "FFFFFF"
+        assert brand_color._contrast_on_white(result) >= brand_color._MIN_TEXT_CONTRAST
+
+    def test_pale_yellow_is_darkened_to_readable(self):
+        result = brand_color._ensure_readable("FFF3B0")
+        assert brand_color._contrast_on_white(result) >= brand_color._MIN_TEXT_CONTRAST
+
+    def test_black_has_max_contrast(self):
+        assert brand_color._contrast_on_white("000000") == pytest.approx(21.0, rel=0.01)
+
+    def test_default_palette_primary_is_already_readable(self):
+        assert brand_color._contrast_on_white(
+            brand_color.DEFAULT_PALETTE["primary"]
+        ) >= brand_color._MIN_TEXT_CONTRAST

@@ -97,6 +97,43 @@ def _darken(hex6: str, factor: float) -> str:
     return f"{r:02X}{g:02X}{b:02X}"
 
 
+# WCAG AA contrast ratio for normal text against a white page background.
+_MIN_TEXT_CONTRAST = 4.5
+
+
+def _relative_luminance(hex6: str) -> float:
+    """WCAG relative luminance (0=black, 1=white) for an sRGB hex color."""
+    def _channel(c: int) -> float:
+        c /= 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (int(hex6[i:i + 2], 16) for i in (0, 2, 4))
+    return 0.2126 * _channel(r) + 0.7152 * _channel(g) + 0.0722 * _channel(b)
+
+
+def _contrast_on_white(hex6: str) -> float:
+    """WCAG contrast ratio of hex6 text against a white (#FFFFFF) background."""
+    return (1.0 + 0.05) / (_relative_luminance(hex6) + 0.05)
+
+
+def _ensure_readable(hex6: str, min_contrast: float = _MIN_TEXT_CONTRAST) -> str:
+    """Darken hex6, preserving hue, until it reads clearly as text on a white
+    page. Brandfetch sometimes returns an "accent" color meant for dark
+    backgrounds or UI chrome — too light to use directly as document text."""
+    if _contrast_on_white(hex6) >= min_contrast:
+        return hex6
+
+    darkened = hex6
+    for step in range(1, 20):
+        darkened = _darken(hex6, step * 0.05)
+        if _contrast_on_white(darkened) >= min_contrast:
+            break
+
+    print(f"  ⚠ Brandfetch: #{hex6} too light for text "
+          f"({_contrast_on_white(hex6):.1f}:1) — darkened to #{darkened}")
+    return darkened
+
+
 def _resolve_domain(company_name: str) -> str | None:
     """Look up company_name via Brandfetch's search endpoint. Returns the domain or None."""
     search_url = f"https://api.brandfetch.io/v2/search/{quote(company_name)}"
@@ -188,6 +225,8 @@ def get_brand_color(company_name: str, domain: str | None = None) -> dict:
             print("  ⚠ Brandfetch: no usable color in brand data — using default colors")
             return DEFAULT_PALETTE
 
+        hex_val = _ensure_readable(hex_val)
+
         secondary_hex = None
         for priority in _COLOR_PRIORITY:
             if priority == chosen_type:
@@ -198,6 +237,9 @@ def get_brand_color(company_name: str, domain: str | None = None) -> dict:
                 if _HEX_RE.match(candidate) and candidate != hex_val:
                     secondary_hex = candidate
                     break
+
+        if secondary_hex:
+            secondary_hex = _ensure_readable(secondary_hex)
 
         palette = _palette_from_hex(hex_val, secondary_hex)
         print(f"  ✓ Brandfetch: {chosen_type} color #{hex_val} → "
