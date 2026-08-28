@@ -282,6 +282,103 @@ def claude(system: str, user: str, max_tokens: int = 4096,
         "likely extended thinking consumed the full max_tokens budget — increase max_tokens)"
     )
 
+
+def _repair_unescaped_quotes(text: str) -> str:
+    """Escape stray literal quote marks and raw control characters that
+    Claude sometimes leaves inside JSON string values — e.g. quoting a
+    phrase from the job posting verbatim ("Governance-by-Design") without
+    escaping the inner quotes. json.loads doesn't report that at the quote
+    itself; it fails later with a misleading "Expecting ',' delimiter" once
+    the unterminated string collides with the next token.
+
+    Heuristic: while inside a string, a `"` only closes the string if the
+    next non-whitespace character is a structural one (`,`, `}`, `]`, `:`,
+    or end of text); otherwise it's an embedded quote and gets escaped.
+    """
+    out = []
+    in_str = False
+    esc = False
+    n = len(text)
+    i = 0
+    while i < n:
+        c = text[i]
+        if in_str:
+            if esc:
+                out.append(c)
+                esc = False
+            elif c == '\\':
+                out.append(c)
+                esc = True
+            elif c == '"':
+                j = i + 1
+                while j < n and text[j] in ' \t\r\n':
+                    j += 1
+                if j >= n or text[j] in ',}]:':
+                    in_str = False
+                    out.append(c)
+                else:
+                    out.append('\\"')
+            elif c in '\n\r\t':
+                out.append({'\n': '\\n', '\r': '\\r', '\t': '\\t'}[c])
+            else:
+                out.append(c)
+        else:
+            if c == '"':
+                in_str = True
+            out.append(c)
+        i += 1
+    return ''.join(out)
+
+
+def _parse_self_correcting_json(
+    raw: str, required_key: str
+) -> tuple[dict | None, json.JSONDecodeError | ValueError | None]:
+    """Extract the last balanced top-level {...} object in `raw` that parses
+    and carries `required_key`.
+
+    Claude occasionally second-guesses itself mid-response on a large
+    schema — emits a complete-but-partial JSON object, some visible "wait,
+    let me redo that" text, then a second, fuller object. A plain
+    json.loads() chokes on that trailing text. Scanning for every balanced
+    top-level object and taking the last usable one recovers the
+    self-corrected final answer. Each candidate also gets one retry through
+    _repair_unescaped_quotes before being given up on.
+    """
+    candidates = []
+    depth, in_str, esc, start = 0, False, False, -1
+    for i, c in enumerate(raw):
+        if esc:
+            esc = False
+        elif c == '\\' and in_str:
+            esc = True
+        elif c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == '{':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif c == '}':
+                depth = max(depth - 1, 0)
+                if depth == 0 and start != -1:
+                    candidates.append(raw[start:i + 1])
+                    start = -1
+
+    last_err: json.JSONDecodeError | ValueError | None = None
+    for candidate in reversed(candidates):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as e:
+            try:
+                parsed = json.loads(_repair_unescaped_quotes(candidate))
+            except json.JSONDecodeError:
+                last_err = e
+                continue
+        if required_key in parsed:
+            return parsed, None
+        last_err = ValueError("parsed JSON object missing required keys")
+    return None, last_err
+
 # ---------------------------------------------------------------------------
 # Tagline width validation
 # ---------------------------------------------------------------------------
@@ -451,6 +548,10 @@ couldn't.
 
 Emit the JSON object exactly once — do not think out loud, self-correct, or restart
 mid-response; if you notice a mistake, just get the object right the first time.
+
+If a string value needs to quote a phrase (from the job posting or elsewhere),
+escape the inner quote marks as \\" or paraphrase instead of quoting — a literal
+unescaped quote inside a JSON string breaks the parser.
 """
 
 
@@ -537,15 +638,8 @@ Produce a JSON object with exactly these keys:
 
 Return ONLY valid JSON. No preamble, no markdown fences, no commentary.
 """
-    # Claude occasionally second-guesses itself mid-response on this large a
-    # schema — emits a complete-but-partial JSON object, some visible
-    # "wait, let me redo that" text, then a second, fuller object. A plain
-    # json.loads() chokes on that (same failure mode fixed for interview prep
-    # generation elsewhere in this file).
-    # Scan for every balanced top-level {...} object in the raw text and take
-    # the LAST one that parses and carries the required keys — that's the
-    # self-corrected final answer. Retry the call once if nothing usable
-    # turns up.
+    # Retry the call once if nothing usable turns up — see
+    # _parse_self_correcting_json for why a plain json.loads() isn't enough.
     last_err: json.JSONDecodeError | ValueError | None = None
     data = None
     raw = ""
@@ -554,37 +648,7 @@ Return ONLY valid JSON. No preamble, no markdown fences, no commentary.
         raw = re.sub(r"^```json\s*", "", raw.strip())
         raw = re.sub(r"\s*```$", "", raw.strip())
 
-        candidates = []
-        depth, in_str, esc, start = 0, False, False, -1
-        for i, c in enumerate(raw):
-            if esc:
-                esc = False
-            elif c == '\\' and in_str:
-                esc = True
-            elif c == '"':
-                in_str = not in_str
-            elif not in_str:
-                if c == '{':
-                    if depth == 0:
-                        start = i
-                    depth += 1
-                elif c == '}':
-                    depth = max(depth - 1, 0)
-                    if depth == 0 and start != -1:
-                        candidates.append(raw[start:i + 1])
-                        start = -1
-
-        for candidate in reversed(candidates):
-            try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError as e:
-                last_err = e
-                continue
-            if "resume_edits" in parsed:
-                data = parsed
-                break
-            last_err = ValueError("parsed JSON object missing required keys")
-
+        data, last_err = _parse_self_correcting_json(raw, "resume_edits")
         if data is not None:
             break
 
@@ -2040,8 +2104,12 @@ Candidate Profile Guide:
             data = json.loads(raw)
             break
         except json.JSONDecodeError as e:
-            last_err = e
-            continue
+            try:
+                data = json.loads(_repair_unescaped_quotes(raw))
+                break
+            except json.JSONDecodeError:
+                last_err = e
+                continue
     if data is None:
         raise WorkflowError(
             f"Match scoring: Claude returned malformed JSON twice in a row "
@@ -2226,6 +2294,10 @@ patterns.
 Return ONLY valid JSON. No preamble, no markdown fences. Emit the JSON object
 exactly once — do not think out loud, self-correct, or restart mid-response;
 if you notice a mistake, just get the object right the first time.
+
+If a string value needs to quote a phrase (from the job posting or elsewhere),
+escape the inner quote marks as \\" or paraphrase instead of quoting — a literal
+unescaped quote inside a JSON string breaks the parser.
 """
 
 
@@ -2657,13 +2729,8 @@ rather than guessing.
 Return ONLY valid JSON. No preamble, no markdown fences.
 """
 
-    # Claude occasionally second-guesses itself mid-response on this large a
-    # schema — emits a complete-but-partial JSON object, some visible
-    # "wait, let me redo that" text, then a second, fuller object. A plain
-    # json.loads() chokes on the trailing text ("Extra data"). Scan for every
-    # balanced top-level {...} object in the raw text and take the LAST one
-    # that parses and carries the required keys — that's the self-corrected
-    # final answer. Retry the call once if nothing usable turns up.
+    # Retry the call once if nothing usable turns up — see
+    # _parse_self_correcting_json for why a plain json.loads() isn't enough.
     last_err: json.JSONDecodeError | ValueError | None = None
     data = None
     raw = ""
@@ -2672,37 +2739,7 @@ Return ONLY valid JSON. No preamble, no markdown fences.
         raw = re.sub(r"^```json\s*", "", raw.strip())
         raw = re.sub(r"\s*```$",     "", raw.strip())
 
-        candidates = []
-        depth, in_str, esc, start = 0, False, False, -1
-        for i, c in enumerate(raw):
-            if esc:
-                esc = False
-            elif c == '\\' and in_str:
-                esc = True
-            elif c == '"':
-                in_str = not in_str
-            elif not in_str:
-                if c == '{':
-                    if depth == 0:
-                        start = i
-                    depth += 1
-                elif c == '}':
-                    depth = max(depth - 1, 0)
-                    if depth == 0 and start != -1:
-                        candidates.append(raw[start:i + 1])
-                        start = -1
-
-        for candidate in reversed(candidates):
-            try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError as e:
-                last_err = e
-                continue
-            if "elevator_pitch" in parsed:
-                data = parsed
-                break
-            last_err = ValueError("parsed JSON object missing required keys")
-
+        data, last_err = _parse_self_correcting_json(raw, "elevator_pitch")
         if data is not None:
             break
 
@@ -3192,7 +3229,10 @@ def _parse_claude_json(raw: str) -> dict:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        raise WorkflowError(f"Failed to parse Claude JSON: {e}\n\nRaw:\n{raw[:2000]}")
+        try:
+            return json.loads(_repair_unescaped_quotes(raw))
+        except json.JSONDecodeError:
+            raise WorkflowError(f"Failed to parse Claude JSON: {e}\n\nRaw:\n{raw[:2000]}")
 
 
 def _build_resume_field_map(data: dict) -> dict[str, str]:
